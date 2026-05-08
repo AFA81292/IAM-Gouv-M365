@@ -73,3 +73,9 @@ Set-Mailbox -Identity "User1" -AuditEnabled $true
 # Vérifier si l'audit est bien activé sur une boîte
 Get-Mailbox -Identity "User1" | Select-Object AuditEnabled
 
+# Chercher qui a supprimé des messages dans la boîte de User1
+Search-MailboxAuditLog -Identity "User1" -Operations SoftDelete, HardDelete
+
+# Chercher qui s'est connecté à la boîte (Sign-in)
+Search-MailboxAuditLog -Identity "User1" -Operations Logon
+
