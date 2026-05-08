@@ -54,16 +54,22 @@ SentitiveInformationType
 
 
 # Logins
-# 1. Purview (Compliance / Labels / DLP)
+# Purview (Compliance / Labels / DLP)
 Connect-IPPSSession
 
-# 2. Exchange Online (Mail / OME)
+# Exchange Online (Mail / OME)
 Connect-ExchangeOnline
 
-# 3. Microsoft Graph (Users / Groups / SC-300)
+# Microsoft Graph (Users / Groups / SC-300)
 Connect-MgGraph -Scopes "User.Read.All", "Group.ReadWrite.All"
 
-# 4. NETTOYAGE (En cas de bug ou fin de session)
+# NETTOYAGE (En cas de bug ou fin de session)
 Get-PSSession | Remove-PSSession # Ferme les tuyaux ouverts
 Disconnect-ExchangeOnline      # Déconnexion propre
+
+# Activer l'audit pour un utilisateur spécifique (Essentiel pour voir les actions des délégués)
+Set-Mailbox -Identity "User1" -AuditEnabled $true
+
+# Vérifier si l'audit est bien activé sur une boîte
+Get-Mailbox -Identity "User1" | Select-Object AuditEnabled
 
