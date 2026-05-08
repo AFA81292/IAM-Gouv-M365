@@ -79,3 +79,12 @@ Search-MailboxAuditLog -Identity "User1" -Operations SoftDelete, HardDelete
 # Chercher qui s'est connecté à la boîte (Sign-in)
 Search-MailboxAuditLog -Identity "User1" -Operations Logon
 
+# Activer la surveillance globale des actions des Admins (Tenant-wide)
+Set-AdminAuditLogConfig -AdminAuditLogEnabled $true
+
+# Surveiller uniquement les commandes liées aux boîtes mails (Filtre)
+Set-AdminAuditLogConfig -AdminAuditLogCmdlets *Mailbox*
+
+# Surveiller uniquement les commandes liées au transport (Mail Flow)
+Set-AdminAuditLogConfig -AdminAuditLogCmdlets *TransportRule*
+
