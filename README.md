@@ -90,3 +90,26 @@ Set-AdminAuditLogConfig -AdminAuditLogCmdlets *Mailbox*
 # Surveiller uniquement les commandes liées au transport (Mail Flow)
 Set-AdminAuditLogConfig -AdminAuditLogCmdlets *TransportRule*
 
+
+# --- TESTS DE SANTÉ DU SYSTÈME (DIAGNOSTICS) ---
+
+# Vérifier la configuration globale du chiffrement (IRM/OME) et les templates
+Test-IRMConfiguration -Sender user1@contoso.com
+
+# Tester si le flux de messagerie de base est opérationnel
+Test-Mailflow -TargetEmailAddress partner@fabrikam.com
+
+# Vérifier la connectivité OAuth (Indispensable pour le chiffrement en mode hybride)
+Test-OAuthConnectivity -Service EWS -TargetUri https://outlook.office365.com/ews/exchange.asmx
+
+# --- GESTION DU CHIFFREMENT (OME) ---
+
+# Créer un nouveau template de marque pour une filiale (Branding)
+New-OMEConfiguration -Identity "Filiale_Luxe" -Image (Get-Content "C:\Logos\Luxe.png" -Encoding byte)
+
+# Configurer l'expiration automatique des mails chiffrés (ex: 7 jours)
+Set-OMEConfiguration -Identity "Filiale_Luxe" -ExternalMailExpiryInDays 7
+
+# Révoquer manuellement un mail chiffré envoyé à un destinataire externe (Social ID)
+Set-OMEMessageRevocation -Revoke $true -MessageId "<ID_DU_MESSAGE>"
+
