@@ -90,6 +90,12 @@ Set-AdminAuditLogConfig -AdminAuditLogCmdlets *Mailbox*
 # Surveiller uniquement les commandes liées au transport (Mail Flow)
 Set-AdminAuditLogConfig -AdminAuditLogCmdlets *TransportRule*
 
+# Activer la surveillance utilisateur sur une boite mail
+Set-Mailbox -AuditEnabled $true
+
+# Activer la surveillance utilisateur sur toutes les boites mail du tenant
+Set-AuditConfig -Workload Exchange
+
 
 # --- TESTS DE SANTÉ DU SYSTÈME (DIAGNOSTICS) ---
 
