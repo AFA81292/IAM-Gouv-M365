@@ -18,7 +18,7 @@ $AuDescription = "AU dynamique : Gestion automatique des ressources du départem
 # La règle est définie ici. 
 # Syntaxe : user.department -eq "Valeur"
 $TargetDepartment = "MagicOps"
-$MembershipRule = "user.department -eq `"$TargetDepartment`""
+$MembershipRule = "(user.department -eq `"$TargetDepartment`")"
 $AdminUPN = "geralt@0n4mg.onmicrosoft.com"
 $RoleTemplateId = "fe930be7-5e62-47db-91af-98c3a49a38b1"
 
