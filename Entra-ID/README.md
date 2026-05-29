@@ -22,6 +22,6 @@ Install-Module Microsoft.Graph -Scope CurrentUser
 ### 02_Administrative_Units
 * [Exo 3a : AU statique et droits scopés](./02_Administrative_Units/exo3a-static-au-delegation.ps1)
   * Objectif : Création d'une Administrative Unit statique, assignation de membres et délégation de rôle scopé au chef.
-* [Exo 3b : AU dynamique](./02_Administrative_Units/exo3a-dynamic-au-delegation.ps1)
+* [Exo 3b : AU dynamique](./02_Administrative_Units/exo3b-dynamic-au-delegation.ps1)
   * Objectif : Création d'une Administrative Unit dynamique via règle d'appartenance.
   * Licence requise : Entra ID P1/P2.
