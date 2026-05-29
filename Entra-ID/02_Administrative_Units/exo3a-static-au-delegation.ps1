@@ -31,7 +31,7 @@ $AuDescription = "Périmètre de gestion statique pour le staff et les alliés d
 # EN PRODUCTION : 
 # $PathCSV = "$PSScriptRoot\members.csv"
 # L'astuce du ".UserPrincipalName" extrait uniquement le texte de la colonne pour la boucle
-$BulkMembers = (Import-Csv -Path $CsvPath).UserPrincipalName
+$BulkMembers = (Import-Csv -Path $PathCSV).UserPrincipalName
 # ----------------------------------------------------------------------------------------
 
 # Administrateur ciblé pour cette AU
@@ -99,7 +99,7 @@ catch {
 
 # --- ÉTAPE 6 : Nettoyage de la mémoire locale (Zéro résidu) ---
 
-Remove-Variable Scopes, AuName, AuDescription, CsvPath, BulkMembers, AdminUPN, `
+Remove-Variable Scopes, AuName, AuDescription, PathCSV, BulkMembers, AdminUPN, `
                 HelpdeskRoleTemplateId, AuParams, NewAU, UserUPN, `
                 UserObject, MemberParams, AdminObject, ScopedRoleParams `
                 -ErrorAction SilentlyContinue
