@@ -1,5 +1,5 @@
 # ========================================================================================
-# Exercice 3a : Création d'une AU, ajout de membres en masse et délégation d'un admin
+# Exercice 3a : Création d'une AU, ajout de membres (CSV ou Manuel) et délégation d'admin
 # ========================================================================================
 
 # --- ÉTAPE 1 : Connexion à Microsoft Graph (Permissions verticales) ---
@@ -14,21 +14,30 @@ Connect-MgGraph -Scopes $Scopes
 $AuName = "Kaer-Morhen-Staff"
 $AuDescription = "Périmètre de gestion statique pour le staff et les alliés de la forteresse."
 
-# Membres à ajouter "plus ou moins en masse"
+# ----------------------------------------------------------------------------------------
+# CHOIX DE LA SOURCE DES MEMBRES
+# ----------------------------------------------------------------------------------------
+# OPTION A : Au cas par cas / Mail par mail (CACHÉ / DESACTIVÉ)
+# $BulkMembers = @(
+#     "triss@0n4mg.onmicrosoft.com",
+#     "yennefer@0n4mg.onmicrosoft.com"
+# )
 
-# Si liste de mails
-#$BulkMembers = @(
-#    "triss@0n4mg.onmicrosoft.com",
-#    "yennefer@0n4mg.onmicrosoft.com"
-#)
+# OPTION B : Fichier CSV (ACTIF)
+# Définition du chemin du fichier CSV - WARNING - a decommenter la ligne necessaire : 
+# EN LABO/Local :
+ $PathCSV = "D:\Documents\ScriptsPowerShell\members.csv"
 
-# Si fichier CSV - On cible le fichier dans le répertoire courant
-$CsvPath = "D:\Documents\ScriptsPowerShell\membres.csv"
-$BulkMembers = Import-Csv -Path $CsvPath
+# EN PRODUCTION : 
+# $PathCSV = "$PSScriptRoot\members.csv"
+# L'astuce du ".UserPrincipalName" extrait uniquement le texte de la colonne pour la boucle
+$BulkMembers = (Import-Csv -Path $CsvPath).UserPrincipalName
+# ----------------------------------------------------------------------------------------
 
 # Administrateur ciblé pour cette AU
 $AdminUPN = "geralt@0n4mg.onmicrosoft.com"
 $HelpdeskRoleTemplateId = "72982c3a-934d-4716-8315-78655c9f91a5" # ID fixe du rôle Helpdesk Admin
+
 
 # --- ÉTAPE 3 : Création de l'Administrative Unit ---
 $AuParams = @{
@@ -46,7 +55,7 @@ Write-Host "2. Injection des membres dans l'AU..." -ForegroundColor Cyan
 
 foreach ($UserUPN in $BulkMembers) {
     try {
-        # Récupération de l'ID de l'utilisateur
+        # Récupération de l'ID de l'utilisateur (Marche aussi bien pour l'Option A que B )
         $UserObject = Get-MgUser -UserId $UserUPN
         
         # Préparation du paramètre de liaison (OData)
@@ -56,7 +65,7 @@ foreach ($UserUPN in $BulkMembers) {
         
         # Liaison à l'AU
         New-MgDirectoryAdministrativeUnitMemberByRef -AdministrativeUnitId $NewAU.Id -BodyParameter $MemberParams
-        Write-Host "   -> Média : $UserUPN ajouté avec succès." -ForegroundColor Green
+        Write-Host "   -> Membre : $UserUPN ajouté avec succès." -ForegroundColor Green
     }
     catch {
         Write-Host "   -> Échec pour $UserUPN : $_" -ForegroundColor Yellow
@@ -87,9 +96,10 @@ catch {
     Write-Host "-> Échec de l'assignation de l'admin : $_" -ForegroundColor Red
 }
 
+
 # --- ÉTAPE 6 : Nettoyage de la mémoire locale (Zéro résidu) ---
 
-Remove-Variable Scopes, AuName, AuDescription, BulkMembers, AdminUPN, `
+Remove-Variable Scopes, AuName, AuDescription, CsvPath, BulkMembers, AdminUPN, `
                 HelpdeskRoleTemplateId, AuParams, NewAU, UserUPN, `
                 UserObject, MemberParams, AdminObject, ScopedRoleParams `
                 -ErrorAction SilentlyContinue
