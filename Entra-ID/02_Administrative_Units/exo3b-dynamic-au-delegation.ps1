@@ -23,7 +23,9 @@ $RoleTemplateId = "fe930be7-5e62-47db-91af-98c3a49a38b1"
 # --- ÉTAPE 3 : Création de l'Administrative Unit Dynamique ---
 # Note : New-MgDirectoryAdministrativeUnit ne supporte pas les paramètres dynamiques
 # (membershipType, membershipRule). On descend au niveau HTTP brut via Invoke-MgGraphRequest
-# pour passer ces paramètres directement à l'API Graph REST. Merci LLM =)
+# pour passer ces paramètres directement à l'API Graph REST.
+# Source : Documentation Microsoft Graph API - Administrative Units
+# Merci LLM =)
 
 Write-Host "1. Création de l'Administrative Unit Dynamique '$AuName'..." -ForegroundColor Cyan
 Write-Host "   Règle appliquée : $MembershipRule" -ForegroundColor Gray
