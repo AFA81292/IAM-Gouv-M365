@@ -1,15 +1,15 @@
-# 🛡️ M365 Security & Identity - Engineering Repository
+# M365 Security & Identity - Engineering Repository
 
 Référentiel de scripts, notes de révision et Proof of Concepts (POC) pour les certifications **SC-300** et **SC-401**.
 
-## 🧭 Structure du dépôt
-*   📁 **[Entra-ID](./Entra-ID/)** : Gestion des identités, rôles et annuaire (SC-300).
-*   📁 **[Purview-Compliance](./Purview-Compliance/)** : Conformité, DLP et classification des données (SC-401).
-*   📁 **[Exchange-Security](./Exchange-Security/)** : Sécurité des mails, chiffrement et logs d'audit.
+##  Structure du dépôt
+* **[Entra-ID](./Entra-ID/)** : Gestion des identités, rôles et annuaire (SC-300).
+* **[Purview-Compliance](./Purview-Compliance/)** : Conformité, DLP et classification des données (SC-401).
+* **[Exchange-Security](./Exchange-Security/)** : Sécurité des mails, chiffrement et logs d'audit.
 
 ---
 
-## 🎯 Rappel : La Grammaire PowerShell
+##  Rappel : La Grammaire PowerShell
 
 | Verbe | Action |
 | :--- | :--- |
