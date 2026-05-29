@@ -36,7 +36,7 @@ $Bulkmembres = (Import-Csv -Path $PathCSV).UserPrincipalName
 
 # Administrateur ciblé pour cette AU
 $AdminUPN = "geralt@0n4mg.onmicrosoft.com"
-$HelpdeskRoleTemplateId = "72982c3a-934d-4716-8315-78655c9f91a5" # ID fixe du rôle Helpdesk Admin
+$HelpdeskRoleTemplateId = "fe930be7-5e62-47db-91af-98c3a49a38b1" # ID du rôle User Administrator (Éligible AU)
 
 
 # --- ÉTAPE 3 : Création de l'Administrative Unit ---
@@ -89,7 +89,7 @@ try {
         }
     }
     
-    New-MgDirectoryAdministrativeUnitScopedRoleMember -AdministrativeUnitId $NewAU.Id -BodyParameter $ScopedRoleParams
+    New-MgDirectoryAdministrativeUnitScopedRoleMember -AdministrativeUnitId $NewAU.Id -BodyParameter $ScopedRoleParams -ErrorAction Stop
     Write-Host "-> Succès : $AdminUPN est désormais admin Helpdesk scopé sur '$AuName'.`n" -ForegroundColor Green
 }
 catch {
