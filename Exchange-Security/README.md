@@ -1,1 +1,1 @@
-# 🟨 Exchange Security
+# Exchange Security
