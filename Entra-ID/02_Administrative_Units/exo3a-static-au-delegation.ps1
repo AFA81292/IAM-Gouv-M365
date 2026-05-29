@@ -18,7 +18,7 @@ $AuDescription = "Périmètre de gestion statique pour le staff et les alliés d
 # CHOIX DE LA SOURCE DES MEMBRES
 # ----------------------------------------------------------------------------------------
 # OPTION A : Au cas par cas / Mail par mail (CACHÉ / DESACTIVÉ)
-# $BulkMembers = @(
+# $Bulkmembres = @(
 #     "triss@0n4mg.onmicrosoft.com",
 #     "yennefer@0n4mg.onmicrosoft.com"
 # )
@@ -26,12 +26,12 @@ $AuDescription = "Périmètre de gestion statique pour le staff et les alliés d
 # OPTION B : Fichier CSV (ACTIF)
 # Définition du chemin du fichier CSV - WARNING - a decommenter la ligne necessaire : 
 # EN LABO/Local :
- $PathCSV = "D:\Documents\ScriptsPowerShell\members.csv"
+ $PathCSV = "D:\Documents\ScriptsPowerShell\membres.csv"
 
 # EN PRODUCTION : 
-# $PathCSV = "$PSScriptRoot\members.csv"
+# $PathCSV = "$PSScriptRoot\membres.csv"
 # L'astuce du ".UserPrincipalName" extrait uniquement le texte de la colonne pour la boucle
-$BulkMembers = (Import-Csv -Path $PathCSV).UserPrincipalName
+$Bulkmembres = (Import-Csv -Path $PathCSV).UserPrincipalName
 # ----------------------------------------------------------------------------------------
 
 # Administrateur ciblé pour cette AU
@@ -53,7 +53,7 @@ Write-Host "-> Succès : AU créée avec l'ID : $($NewAU.Id)`n" -ForegroundColor
 # --- ÉTAPE 4 : Ajout des membres en masse via une boucle ---
 Write-Host "2. Injection des membres dans l'AU..." -ForegroundColor Cyan
 
-foreach ($UserUPN in $BulkMembers) {
+foreach ($UserUPN in $Bulkmembres) {
     try {
         # Récupération de l'ID de l'utilisateur (Marche aussi bien pour l'Option A que B )
         $UserObject = Get-MgUser -UserId $UserUPN
@@ -99,7 +99,7 @@ catch {
 
 # --- ÉTAPE 6 : Nettoyage de la mémoire locale (Zéro résidu) ---
 
-Remove-Variable Scopes, AuName, AuDescription, PathCSV, BulkMembers, AdminUPN, `
+Remove-Variable Scopes, AuName, AuDescription, PathCSV, Bulkmembres, AdminUPN, `
                 HelpdeskRoleTemplateId, AuParams, NewAU, UserUPN, `
                 UserObject, MemberParams, AdminObject, ScopedRoleParams `
                 -ErrorAction SilentlyContinue
