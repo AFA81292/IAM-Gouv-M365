@@ -1,3 +1,26 @@
+# 🛡️ M365 Security & Identity - Engineering Repository
+
+Référentiel de scripts, notes de révision et Proof of Concepts (POC) pour les certifications **SC-300** et **SC-401**.
+
+## 🧭 Structure du dépôt
+*   📁 **[Entra-ID](./Entra-ID/)** : Gestion des identités, rôles et annuaire (SC-300).
+*   📁 **[Purview-Compliance](./Purview-Compliance/)** : Conformité, DLP et classification des données (SC-401).
+*   📁 **[Exchange-Security](./Exchange-Security/)** : Sécurité des mails, chiffrement et logs d'audit.
+
+---
+
+## 🎯 Rappel : La Grammaire PowerShell
+
+| Verbe | Action |
+| :--- | :--- |
+| `Get-` | **Montre** (Audit de l'existant) |
+| `Set-` | **Modifie** (Durcissement de configuration) |
+| `New-` | **Crée** (Déploiement d'une règle/rôle) |
+| `Remove-` | **Supprime** (Révocation) |
+| `Test-` | **Vérifie** (Diagnostic et santé système) |
+| `Search-` | **Recherche** (Analyse de logs / Forensics) |
+
+
 # PowerShell
 #Liste de commandes en tas, SC401 + SC300 + PowerShell de base
 
