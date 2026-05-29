@@ -24,6 +24,7 @@ $UserParams = @{
 
 # 4. Exécution et création dans Entra ID
 $NewUser = New-MgUser @UserParams
+if (-not $NewUser) { Write-Error "La création de l'utilisateur a échoué." ; return }
 
 # 5. Affichage du résultat pour validation dans la console
 $NewUser | Select-Object Id, DisplayName, UserPrincipalName, Country, Department
