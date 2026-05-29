@@ -9,7 +9,7 @@
 Connect-MgGraph -Scopes "User.ReadWrite.All"
 
 # 2. Définition du chemin du fichier CSV - WARNING - a decommenter la ligne necessaire : 
-# EN LABO :
+# EN LABO/Local :
  $PathCSV = "D:\Documents\ScriptsPowerShell\utilisateurs.csv"
 
 # EN PRODUCTION : 
