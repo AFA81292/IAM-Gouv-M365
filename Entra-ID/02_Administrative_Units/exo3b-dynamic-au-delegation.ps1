@@ -21,11 +21,25 @@ $AdminUPN = "geralt@0n4mg.onmicrosoft.com"
 $RoleTemplateId = "fe930be7-5e62-47db-91af-98c3a49a38b1"
 
 # --- ÉTAPE 3 : Création de l'Administrative Unit Dynamique ---
-# Note : New-MgDirectoryAdministrativeUnit ne supporte pas les paramètres dynamiques
-# (membershipType, membershipRule). On descend au niveau HTTP brut via Invoke-MgGraphRequest
-# pour passer ces paramètres directement à l'API Graph REST.
-# Source : Documentation Microsoft Graph API - Administrative Units
-# Merci LLM =)
+# New-MgDirectoryAdministrativeUnit ne supporte pas les paramètres dynamiques - Merci LLM =)
+# (membershipType, membershipRule) — le cmdlet PowerShell n'a pas ces "cases" dans son formulaire.
+#
+# Solution : Invoke-MgGraphRequest — on bypasse le cmdlet et on parle directement
+# à l'API Graph en HTTP, comme envoyer une lettre au bureau au lieu d'utiliser
+# un formulaire pré-rempli. On contrôle tout soi-même :
+#
+#   -Method POST  : verbe HTTP pour CRÉER une ressource
+#                   (GET=lire, PATCH=modifier, DELETE=supprimer)
+#   -Uri          : l'adresse du endpoint Graph ciblé
+#                   (/directory/administrativeUnits = le "bureau" des AUs chez Microsoft)
+#   -Body         : les paramètres qu'on envoie à Microsoft :
+#                     displayName                   = nom de l'AU
+#                     description                   = description
+#                     membershipType                = "Dynamic" (vs "Assigned" pour statique)
+#                     membershipRule                = la règle Entra (ex: user.department -eq "X")
+#                     membershipRuleProcessingState = "On" pour activer le moteur de règle
+#
+# Ref : learn.microsoft.com/en-us/graph/api/directory-post-administrativeunits
 
 Write-Host "1. Création de l'Administrative Unit Dynamique '$AuName'..." -ForegroundColor Cyan
 Write-Host "   Règle appliquée : $MembershipRule" -ForegroundColor Gray
