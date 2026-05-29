@@ -87,3 +87,5 @@ Remove-Variable Scopes, AuName, AuDescription, BulkMembers, AdminUPN, `
                 HelpdeskRoleTemplateId, AuParams, NewAU, UserUPN, `
                 UserObject, MemberParams, AdminObject, ScopedRoleParams `
                 -ErrorAction SilentlyContinue
+
+Write-Host "Mémoire locale nettoyée. Session Microsoft Graph toujours active." -ForegroundColor Magenta
