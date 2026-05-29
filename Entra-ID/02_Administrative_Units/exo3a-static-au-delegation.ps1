@@ -36,7 +36,8 @@ $Bulkmembres = (Import-Csv -Path $PathCSV).UserPrincipalName
 
 # Administrateur ciblé pour cette AU
 $AdminUPN = "geralt@0n4mg.onmicrosoft.com"
-$HelpdeskRoleTemplateId = "fe930be7-5e62-47db-91af-98c3a49a38b1" # ID du rôle User Administrator (Éligible AU)
+# ID de template du rôle User Administrator (Éligible à l'AU)
+$RoleTemplateId = "fe930be7-5e62-47db-91af-98c3a49a38b1"
 
 
 # --- ÉTAPE 3 : Création de l'Administrative Unit ---
@@ -79,28 +80,30 @@ Write-Host "3. Assignation de l'administrateur de l'AU ($AdminUPN)..." -Foregrou
 
 try {
     # Récupération de l'ID de l'admin
-    $AdminObject = Get-MgUser -UserId $AdminUPN
+    $AdminObject = Get-MgUser -UserId $AdminUPN -ErrorAction Stop
+    
+    # Récupération dynamique de l'ID du rôle instancié pour éviter l'erreur 404 (NotFound)
+    $ActiveRole = Get-MgDirectoryRole | Where-Object {$_.RoleTemplateId -eq $RoleTemplateId}
     
     # Configuration du rôle scopé à l'AU créée à l'Étape 3
     $ScopedRoleParams = @{
-        RoleId = $HelpdeskRoleTemplateId
+        RoleId = $ActiveRole.Id
         RoleMemberInfo = @{
             Id = $AdminObject.Id
         }
     }
     
     New-MgDirectoryAdministrativeUnitScopedRoleMember -AdministrativeUnitId $NewAU.Id -BodyParameter $ScopedRoleParams -ErrorAction Stop
-    Write-Host "-> Succès : $AdminUPN est désormais admin Helpdesk scopé sur '$AuName'.`n" -ForegroundColor Green
+    Write-Host "-> Succès : $AdminUPN est désormais admin User des utilisateurs scopé sur '$AuName'.`n" -ForegroundColor Green
 }
 catch {
     Write-Host "-> Échec de l'assignation de l'admin : $_" -ForegroundColor Red
 }
 
-
 # --- ÉTAPE 6 : Nettoyage de la mémoire locale (Zéro résidu) ---
 
 Remove-Variable Scopes, AuName, AuDescription, PathCSV, Bulkmembres, AdminUPN, `
-                HelpdeskRoleTemplateId, AuParams, NewAU, UserUPN, `
+                RoleTemplateId, AuParams, NewAU, UserUPN, `
                 UserObject, MemberParams, AdminObject, ScopedRoleParams `
                 -ErrorAction SilentlyContinue
 
