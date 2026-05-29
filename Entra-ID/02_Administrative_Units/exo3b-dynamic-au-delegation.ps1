@@ -22,26 +22,30 @@ $MembershipRule = "(user.department -eq `"$TargetDepartment`")"
 $AdminUPN = "geralt@0n4mg.onmicrosoft.com"
 $RoleTemplateId = "fe930be7-5e62-47db-91af-98c3a49a38b1"
 
-# --- ÉTAPE 3 : Préparation et création de l'Administrative Unit Dynamique ---
-$AuParams = @{
-    DisplayName                   = $AuName
-    Description                   = $AuDescription
-    MembershipType                = "dynamicMembership"
-    MembershipRule                = $MembershipRule
-    MembershipRuleProcessingState = "on"
-}
-
+# --- ÉTAPE 3 : Création de l'Administrative Unit Dynamique ---
 Write-Host "1. Création de l'Administrative Unit Dynamique '$AuName'..." -ForegroundColor Cyan
 Write-Host "   Règle appliquée : $MembershipRule" -ForegroundColor Gray
 
 try {
-    $NewAU = New-MgDirectoryAdministrativeUnit -BodyParameter $AuParams -ErrorAction Stop
-    Write-Host "-> Succès : AU dynamique créée avec l'ID : $($NewAU.Id)`n" -ForegroundColor Green
+    $NewAU = Invoke-MgGraphRequest -Method POST `
+        -Uri "https://graph.microsoft.com/v1.0/directory/administrativeUnits" `
+        -Body @{
+            displayName                   = $AuName
+            description                   = $AuDescription
+            membershipType                = "Dynamic"
+            membershipRule                = $MembershipRule
+            membershipRuleProcessingState = "On"
+        } `
+        -ContentType "application/json" `
+        -ErrorAction Stop
+
+    Write-Host "-> Succès : AU dynamique créée avec l'ID : $($NewAU.id)`n" -ForegroundColor Green
 }
 catch {
     Write-Host "-> Échec critique de création : $_" -ForegroundColor Red
     break
 }
+
 
 # --- ÉTAPE 4 : Audit (AVEC BOUCLE D'ATTENTE) ---
 # On boucle jusqu'à 5 fois (5s par essai) pour attendre le moteur de règle
