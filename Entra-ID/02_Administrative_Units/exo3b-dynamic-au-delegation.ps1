@@ -94,6 +94,10 @@ try {
         RoleId         = $ActiveRole.Id
         RoleMemberInfo = @{ Id = $AdminObject.Id }
     }
+    
+# Délai de propagation Azure/Graph :
+# l'AU peut être créée côté backend mais pas encore disponible
+# immédiatement pour les opérations RBAC suivantes.
 
     Start-Sleep -Seconds 3
     New-MgDirectoryAdministrativeUnitScopedRoleMember -AdministrativeUnitId $NewAU.id -BodyParameter $ScopedRoleParams -ErrorAction Stop | Out-Null
