@@ -57,47 +57,32 @@ $AuStatus = Invoke-MgGraphRequest -Method GET `
 Write-Host "-> Statut du moteur : $($AuStatus.membershipRuleProcessingState)" -ForegroundColor Green
 Write-Host "-> Info : Les membres seront peuplés automatiquement par Entra (délai jusqu'à 24h).`n" -ForegroundColor Yellow
 
-# --- ÉTAPE 5 : Assignation de l'admin (AVEC BOUCLE D'ATTENTE) ---
+# --- ÉTAPE 5 : Assignation de l'admin scopé ---
+
 Write-Host "3. Assignation de l'admin $AdminUPN..." -ForegroundColor Cyan
-$Success = $false
 
-for ($i=1; $i -le 3; $i++) {
-    try {
-        $AdminObject = Get-MgUser -UserId $AdminUPN -ErrorAction Stop
-        $ActiveRole = Get-MgDirectoryRole | Where-Object {$_.RoleTemplateId -eq $RoleTemplateId}
-        
-        $ExistingAdmins = Get-MgDirectoryAdministrativeUnitScopedRoleMember -AdministrativeUnitId $NewAU.id -ErrorAction SilentlyContinue
-        $IsAlreadyAdmin = $ExistingAdmins | Where-Object {$_.Id -eq $AdminObject.Id}
+try {
+    $AdminObject = Get-MgUser -UserId $AdminUPN -ErrorAction Stop
+    $ActiveRole = Get-MgDirectoryRole | Where-Object {$_.RoleTemplateId -eq $RoleTemplateId}
 
-        if ($IsAlreadyAdmin) {
-            Write-Host "-> Info : $AdminUPN est DÉJÀ admin de cette AU. Aucune action nécessaire." -ForegroundColor Yellow
-            $Success = $true
-            break
-        }
-        else {
-            $ScopedRoleParams = @{
-                RoleId = $ActiveRole.Id
-                RoleMemberInfo = @{ Id = $AdminObject.Id }
-            }
-            New-MgDirectoryAdministrativeUnitScopedRoleMember -AdministrativeUnitId $NewAU.id -BodyParameter $ScopedRoleParams -ErrorAction Stop | Out-Null
-            Write-Host "-> Succès : $AdminUPN est désormais admin de '$AuName'." -ForegroundColor Green
-            $Success = $true
-            break
-        }
+    if (-not $ActiveRole) { Write-Error "Rôle introuvable dans le tenant." ; return }
+
+    $ScopedRoleParams = @{
+        RoleId         = $ActiveRole.Id
+        RoleMemberInfo = @{ Id = $AdminObject.Id }
     }
-    catch {
-        Write-Host "   Tentative $i/3 : Erreur de propagation ou rôle non trouvé (réessai)..." -ForegroundColor Gray
-        Start-Sleep -Seconds 5
-    }
+
+    Start-Sleep -Seconds 3
+    New-MgDirectoryAdministrativeUnitScopedRoleMember -AdministrativeUnitId $NewAU.id -BodyParameter $ScopedRoleParams -ErrorAction Stop | Out-Null
+    Write-Host "-> Succès : $AdminUPN est désormais admin de '$AuName'." -ForegroundColor Green
 }
-
-if (-not $Success) { 
-    Write-Host "-> Échec final : Impossible d'assigner l'admin après 3 tentatives." -ForegroundColor Red 
+catch {
+    Write-Host "-> Échec de l'assignation : $_" -ForegroundColor Red
 }
 
 # --- ÉTAPE 6 : Nettoyage de la mémoire locale ---
 Remove-Variable Scopes, AuName, AuDescription, TargetDepartment, MembershipRule, AdminUPN, `
-                  RoleTemplateId, NewAU, AuStatus, Members, Success, `
-                  AdminObject, ActiveRole, ExistingAdmins, IsAlreadyAdmin, ScopedRoleParams -ErrorAction SilentlyContinue
+                RoleTemplateId, NewAU, AuStatus, AdminObject, ActiveRole, ScopedRoleParams `
+                -ErrorAction SilentlyContinue
 
 Write-Host "`nMémoire locale nettoyée. Session Microsoft Graph toujours active." -ForegroundColor Magenta
