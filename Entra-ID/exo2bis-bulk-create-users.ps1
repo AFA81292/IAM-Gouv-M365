@@ -13,6 +13,8 @@ Connect-MgGraph -Scopes "User.ReadWrite.All"
 # $PSScriptRoot se transformera automatiquement en "D:\Documents\ScriptsPowerShell"
 $PathCSV = "$PSScriptRoot\utilisateurs.csv"
 
+$PathCSV = "$PSScriptRoot\utilisateurs.csv"
+
 # Vérification de sécurité : On s'assure que le fichier CSV est bien présent dans le dossier
 if (-not (Test-Path $PathCSV)) {
     Write-Error "Erreur : Le fichier 'utilisateurs.csv' est introuvable dans $PathCSV !"
