@@ -73,7 +73,7 @@ for ($i=1; $i -le 3; $i++) {
                 RoleId = $ActiveRole.Id
                 RoleMemberInfo = @{ Id = $AdminObject.Id }
             }
-            New-MgDirectoryAdministrativeUnitScopedRoleMember -AdministrativeUnitId $NewAU.id -BodyParameter $ScopedRoleParams -ErrorAction Stop
+            New-MgDirectoryAdministrativeUnitScopedRoleMember -AdministrativeUnitId $NewAU.id -BodyParameter $ScopedRoleParams -ErrorAction Stop | Out-Null
             Write-Host "-> Succès : $AdminUPN est désormais admin de '$AuName'." -ForegroundColor Green
             $Success = $true
             break
