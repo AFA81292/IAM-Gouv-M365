@@ -81,6 +81,9 @@ catch {
     Write-Host "-> Échec de l'assignation de l'admin : $_" -ForegroundColor Red
 }
 
-# --- ÉTAPE 6 : Déconnexion ---
-Disconnect-MgGraph
-Write-Host "Script terminé. Session Graph fermée." -ForegroundColor Magenta
+# --- ÉTAPE 6 : Nettoyage de la mémoire locale (Zéro résidu) ---
+
+Remove-Variable Scopes, AuName, AuDescription, BulkMembers, AdminUPN, `
+                HelpdeskRoleTemplateId, AuParams, NewAU, UserUPN, `
+                UserObject, MemberParams, AdminObject, ScopedRoleParams `
+                -ErrorAction SilentlyContinue
