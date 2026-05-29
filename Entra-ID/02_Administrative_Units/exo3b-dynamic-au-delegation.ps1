@@ -26,10 +26,8 @@ $RoleTemplateId = "fe930be7-5e62-47db-91af-98c3a49a38b1"
 $AuParams = @{
     DisplayName                   = $AuName
     Description                   = $AuDescription
-    # Le paramètre clé pour rendre l'AU dynamique
     MembershipType                = "dynamicMembership"
     MembershipRule                = $MembershipRule
-    # Activation immédiate du moteur de règle
     MembershipRuleProcessingState = "on"
 }
 
@@ -42,7 +40,7 @@ try {
 }
 catch {
     Write-Host "-> Échec critique de création : $_" -ForegroundColor Red
-    break # Arrête le script si l'AU ne peut pas être créée
+    break
 }
 
 # --- ÉTAPE 4 : Audit (AVEC BOUCLE D'ATTENTE) ---
@@ -99,10 +97,6 @@ for ($i=1; $i -le 3; $i++) {
 }
 
 if (-not $Success) { 
-    Write-Host "-> Échec final : Impossible d'assigner l'admin après 3 tentatives." -ForegroundColor Red 
-}
-
-ifif (-not $Success) { 
     Write-Host "-> Échec final : Impossible d'assigner l'admin après 3 tentatives." -ForegroundColor Red 
 }
 
