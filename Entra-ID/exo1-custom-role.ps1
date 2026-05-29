@@ -1,1 +1,27 @@
+# Connexion obligatoire avec les droits d'écriture sur les rôles de l'annuaire
+Connect-MgGraph -Scopes "RoleManagement.ReadWrite.Directory"
 
+# 1. Définition des permissions granulaires (Actions)
+# Note : Ces chaînes correspondent aux actions de l'API Microsoft Graph
+$Permissions = @(
+    "microsoft.directory/applications/create",
+    "microsoft.directory/applications/standard/read"
+)
+
+# 2. Construction du dictionnaire de paramètres (Splatting)
+$RoleParams = @{
+    DisplayName     = "SecOps - Custom App Creator"
+    Description     = "Role restreint developpé pour l'exercice créa custom role - Autorise la creation d'apps sans droit Global Admin."
+    IsEnabled       = $true
+    RolePermissions = @(
+        @{
+            AllowedResourceActions = $Permissions
+        }
+    )
+}
+
+# 3. Exécution et création du rôle dans Entra ID
+$NewRole = New-MgRoleManagementDirectoryRoleDefinition @RoleParams
+
+# 4. Vérification et affichage de l'ID généré par Azure
+$NewRole | Select-Object Id, DisplayName, IsEnabled
