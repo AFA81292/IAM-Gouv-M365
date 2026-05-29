@@ -24,7 +24,11 @@ $RoleParams = @{
 $NewRole = New-MgRoleManagementDirectoryRoleDefinition @RoleParams
 
 # 4. Vérification et affichage de l'ID généré par Azure
-$NewRole | Select-Object Id, DisplayName, IsEnabled
+if (-not $NewRole) {
+    Write-Error "La création du rôle a échoué."
+} else {
+    $NewRole | Select-Object Id, DisplayName, IsEnabled
+}
 
 # 5. Nettoyage de la session (Évite les conflits au prochain exercice)
 Remove-Variable Permissions, RoleParams, NewRole
