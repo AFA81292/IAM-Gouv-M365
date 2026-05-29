@@ -8,12 +8,12 @@
 # 1. Connexion à l'API Microsoft Graph avec les privilèges d'écriture
 Connect-MgGraph -Scopes "User.ReadWrite.All"
 
-# 2. Définition du chemin du fichier CSV
-# Note : Si le script est lancé depuis D:\Documents\ScriptsPowerShell, 
-# $PSScriptRoot se transformera automatiquement en "D:\Documents\ScriptsPowerShell"
-$PathCSV = "$PSScriptRoot\utilisateurs.csv"
+# 2. Définition du chemin du fichier CSV - WARNING - a decommenter la ligne necessaire : 
+# EN LABO :
+ $PathCSV = "D:\Documents\ScriptsPowerShell\utilisateurs.csv"
 
-$PathCSV = "$PSScriptRoot\utilisateurs.csv"
+# EN PRODUCTION : 
+# $PathCSV = "$PSScriptRoot\utilisateurs.csv"
 
 # Vérification de sécurité : On s'assure que le fichier CSV est bien présent dans le dossier
 if (-not (Test-Path $PathCSV)) {
