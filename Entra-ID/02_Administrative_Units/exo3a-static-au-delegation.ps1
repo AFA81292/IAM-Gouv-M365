@@ -65,7 +65,7 @@ foreach ($UserUPN in $Bulkmembres) {
         }
         
         # Liaison à l'AU
-        New-MgDirectoryAdministrativeUnitMemberByRef -AdministrativeUnitId $NewAU.Id -BodyParameter $MemberParams
+        New-MgDirectoryAdministrativeUnitMemberByRef -AdministrativeUnitId $NewAU.Id -BodyParameter $MemberParams | Out-Null
         Write-Host "   -> Membre : $UserUPN ajouté avec succès." -ForegroundColor Green
     }
     catch {
@@ -93,7 +93,7 @@ try {
         }
     }
     
-    New-MgDirectoryAdministrativeUnitScopedRoleMember -AdministrativeUnitId $NewAU.Id -BodyParameter $ScopedRoleParams -ErrorAction Stop
+    New-MgDirectoryAdministrativeUnitScopedRoleMember -AdministrativeUnitId $NewAU.Id -BodyParameter $ScopedRoleParams -ErrorAction Stop | Out-Null
     Write-Host "-> Succès : $AdminUPN est désormais admin User des utilisateurs scopé sur '$AuName'.`n" -ForegroundColor Green
 }
 catch {
