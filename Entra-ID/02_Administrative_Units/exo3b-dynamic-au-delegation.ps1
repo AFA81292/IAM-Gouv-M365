@@ -64,11 +64,20 @@ catch {
     break
 }
 
+
 # --- ÉTAPE 4 : Confirmation du moteur de règle ---
 Write-Host "2. Vérification du moteur de règle..." -ForegroundColor Cyan
+
+# GET = on lit ce qu'Azure a enregistré, sans modifier quoi que ce soit
+# L'ID de l'AU créée à l'étape 3 est injecté dynamiquement dans l'Uri
 $AuStatus = Invoke-MgGraphRequest -Method GET `
     -Uri "https://graph.microsoft.com/v1.0/directory/administrativeUnits/$($NewAU.id)"
+
+# On affiche uniquement membershipRuleProcessingState
+# Valeur attendue : "On" = moteur actif / "Paused" ou vide = problème
 Write-Host "-> Statut du moteur : $($AuStatus.membershipRuleProcessingState)" -ForegroundColor Green
+
+# "On" ne veut pas dire que les membres sont déjà là — Entra traite la règle en arrière-plan
 Write-Host "-> Info : Les membres seront peuplés automatiquement par Entra (délai jusqu'à 24h).`n" -ForegroundColor Yellow
 
 # --- ÉTAPE 5 : Assignation de l'admin scopé ---
