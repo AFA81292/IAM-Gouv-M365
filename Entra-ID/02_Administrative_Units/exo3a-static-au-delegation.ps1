@@ -15,10 +15,16 @@ $AuName = "Kaer-Morhen-Staff"
 $AuDescription = "Périmètre de gestion statique pour le staff et les alliés de la forteresse."
 
 # Membres à ajouter "plus ou moins en masse"
-$BulkMembers = @(
-    "triss@0n4mg.onmicrosoft.com",
-    "yennefer@0n4mg.onmicrosoft.com"
-)
+
+# Si liste de mails
+#$BulkMembers = @(
+#    "triss@0n4mg.onmicrosoft.com",
+#    "yennefer@0n4mg.onmicrosoft.com"
+#)
+
+# Si fichier CSV - On cible le fichier dans le répertoire courant
+$CsvPath = "D:\Documents\ScriptsPowerShell\membres.csv"
+$BulkMembers = Import-Csv -Path $CsvPath
 
 # Administrateur ciblé pour cette AU
 $AdminUPN = "geralt@0n4mg.onmicrosoft.com"
