@@ -25,3 +25,10 @@ Install-Module Microsoft.Graph -Scope CurrentUser
 * [Exo 3b : AU dynamique](./02_Administrative_Units/exo3b-dynamic-au-delegation.ps1)
   * Objectif : Création d'une Administrative Unit dynamique via règle d'appartenance.
   * Licence requise : Entra ID P1/P2.
+
+### 03_Group_Management
+* [Exo 4a : Security Group statique](./03_Group_Management/exo4a-static-security-group.ps1)
+  * Objectif : Création d'un Security Group statique avec owner et peuplement de membres via fichier CSV.
+* [Exo 4b : Security Group dynamique](./03_Group_Management/exo4b-dynamic-security-group.ps1)
+  * Objectif : Création d'un Security Group dynamique avec règle de membership automatique basée sur l'attribut département.
+  * Licence requise : Entra ID P1/P2.
