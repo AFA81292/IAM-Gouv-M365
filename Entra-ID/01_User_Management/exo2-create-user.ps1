@@ -1,3 +1,9 @@
+# ==============================================================================
+# EXERCICE 2 : Création d'un rôle personnalisé
+# Objectif : Déploiement d'un rôle RBAC granulaire pour la création d'applications.
+# Licence requise : Entra ID P1/P2.
+# ==============================================================================
+
 # Connexion avec les privilèges requis pour la gestion des comptes
 Connect-MgGraph -Scopes "User.ReadWrite.All"
 
