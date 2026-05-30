@@ -49,6 +49,9 @@ foreach ($User in $UsersToCreate) {
         PasswordProfile   = $PasswordProfile
         Country           = $User.Country
         Department        = $User.Department
+        JobTitle          = $User.JobTitle
+        City              = $User.City
+        
     }
 
     # 6. Bloc de sécurité Try/Catch pour gérer les erreurs d'exécution (ex: doublons)
