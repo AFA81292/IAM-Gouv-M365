@@ -12,9 +12,11 @@
 # --- ÉTAPE 1 : Connexion à Microsoft Graph ---
 # Policy.ReadWrite.ConditionalAccess : créer/modifier des politiques CA
 # Group.Read.All : lire les groupes pour récupérer l'ID du break-glass
+# Application.Read.All : requis par Graph pour valider les apps ciblées dans la politique CA (ca crash sans)
 $Scopes = @(
     "Policy.ReadWrite.ConditionalAccess",
-    "Group.Read.All"
+    "Group.Read.All",
+    "Application.Read.All"
 )
 Connect-MgGraph -Scopes $Scopes
 
