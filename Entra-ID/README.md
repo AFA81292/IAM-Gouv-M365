@@ -32,3 +32,9 @@ Install-Module Microsoft.Graph -Scope CurrentUser
 * [Exo 4b : Security Group dynamique](./03_Group_Management/exo4b-dynamic-security-group.ps1)
   * Objectif : Création d'un Security Group dynamique avec règle de membership automatique basée sur l'attribut département.
   * Licence requise : Entra ID P1/P2.
+
+### 04_Conditional_Access
+* [Exo 5a : MFA obligatoire pour tous les utilisateurs](./04_Conditional_Access/exo5a-require-mfa-all-users.ps1)
+  * Objectif : Création d'une politique Conditional Access imposant le MFA à tous les utilisateurs, avec exclusion d'un groupe break-glass.
+  * State : Report-Only — bonne pratique avant activation en prod.
+  * Licence requise : Entra ID P1/P2.
