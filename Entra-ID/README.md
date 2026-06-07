@@ -47,28 +47,27 @@ Install-Module Microsoft.Graph -Scope CurrentUser
   * Objectif : Identifier et supprimer les Access Packages expirés ou inutilisés.
   * Licence requise : Entra ID P2.
 
-
 <details>
-<summary>Commandes utiles en une ligne - Entitlement_Management </summary>
- **Commandes utiles en une ligne :**
- ```powershell
- # Lister tous les Access Packages du tenant
- Get-MgEntitlementManagementAccessPackage -All | Select-Object Id, DisplayName, Description
+<summary>Commandes utiles en une ligne — Entitlement Management</summary>
 
- # Lister tous les Catalogs
- Get-MgEntitlementManagementCatalog -All | Select-Object Id, DisplayName, State
+```powershell
+# Lister tous les Access Packages du tenant
+Get-MgEntitlementManagementAccessPackage -All | Select-Object Id, DisplayName, Description
 
- # Lister les demandes en attente
- Get-MgEntitlementManagementAssignmentRequest -Filter "state eq 'pendingApproval'" | Select-Object Id, RequestType, State
+# Lister tous les Catalogs
+Get-MgEntitlementManagementCatalog -All | Select-Object Id, DisplayName, State
 
- # Lister les assignations actives
- Get-MgEntitlementManagementAssignment -Filter "state eq 'delivered'" -All | Select-Object Id, State
+# Lister les demandes en attente
+Get-MgEntitlementManagementAssignmentRequest -Filter "state eq 'pendingApproval'" | Select-Object Id, RequestType, State
+
+# Lister les assignations actives
+Get-MgEntitlementManagementAssignment -Filter "state eq 'delivered'" -All | Select-Object Id, State
 
 # Supprimer un Access Package (récupérer l'ID via Get-MgEntitlementManagementAccessPackage)
 Remove-MgEntitlementManagementAccessPackage -AccessPackageId "id-de-l-access-package"
 
- # Supprimer un Catalog (récupérer l'ID via Get-MgEntitlementManagementCatalog)
- Remove-MgEntitlementManagementCatalog -AccessPackageCatalogId "id-du-catalog"
- ```
-<details>
+# Supprimer un Catalog (récupérer l'ID via Get-MgEntitlementManagementCatalog)
+Remove-MgEntitlementManagementCatalog -AccessPackageCatalogId "id-du-catalog"
+```
 
+</details>
