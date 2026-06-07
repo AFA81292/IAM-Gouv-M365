@@ -75,6 +75,7 @@ $PolicyParams = @{
     GrantControls = @{
         # "OR" = une condition suffit / "AND" = toutes obligatoires
         Operator        = "OR"
+        # MFA obligatoire pour satisfaire la politique
         BuiltInControls = @("mfa")
     }
 }
@@ -89,10 +90,11 @@ try {
 }
 catch {
     Write-Host "-> Échec de création : $_" -ForegroundColor Red
+    return
 }
 
 # --- ÉTAPE 6 : Vérification depuis Entra (source de vérité) ---
-# 5 secondes — réplication CA plus lente que les objets users/groupes
+# Réplication CA plus lente que les objets users/groupes — 10 secondes minimum
 Write-Host "3. Attente de la réplication Azure (10s)..." -ForegroundColor Cyan
 Start-Sleep -Seconds 10
 
@@ -101,8 +103,10 @@ try {
         Select-Object Id, DisplayName, State
 }
 catch {
-    Write-Host "-> Politique créée mais pas encore répliquée sur ce nœud." -ForegroundColor Yellow
-    Write-Host "-> Vérifie dans Entra Admin Center — elle y est." -ForegroundColor Yellow
+    # La politique est créée mais pas encore répliquée sur ce nœud Graph
+    # Vérifie dans Entra Admin Center — elle y est
+    Write-Host "-> Politique créée mais réplication en cours." -ForegroundColor Yellow
+    Write-Host "-> ID : $($NewPolicy.Id) — vérifie dans Entra Admin Center." -ForegroundColor Yellow
 }
 
 # --- ÉTAPE 7 : Nettoyage ---
