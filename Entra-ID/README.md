@@ -62,3 +62,35 @@ Get-MgEntitlementManagementAssignmentRequest -Filter "state eq 'pendingApproval'
 ```
 
 </details>
+
+
+### 05_Conditional_Access
+* [Exo 5 : Audit des politiques Conditional Access](./05_Conditional_Access/exo5-audit-conditional-access.ps1)
+  * Objectif : Lister toutes les politiques CA du tenant — état, conditions, grant controls.
+  * Licence requise : Entra ID P1/P2.
+
+> ⚠️ **Note technique :** Comme pour l'Entitlement Management, les opérations d'écriture
+> Conditional Access (création, modification, suppression) nécessitent un Service Principal
+> dédié avec admin consent sur Policy.ReadWrite.ConditionalAccess — l'app générique
+> Microsoft Graph Command Line Tools ne supporte pas ce scope via WAM.
+> Les politiques CA sont donc gérées via GUI Entra Admin Center.
+> Ce script se limite à la lecture — use case audit/reporting.
+
+<details>
+<summary>Commandes utiles en une ligne — Conditional Access</summary>
+
+```powershell
+# Lister toutes les politiques CA du tenant
+Get-MgIdentityConditionalAccessPolicy -All | Select-Object Id, DisplayName, State
+
+# Lister uniquement les politiques actives
+Get-MgIdentityConditionalAccessPolicy -All | Where-Object {$_.State -eq "enabled"} | Select-Object Id, DisplayName
+
+# Lister les politiques en Report-Only
+Get-MgIdentityConditionalAccessPolicy -All | Where-Object {$_.State -eq "enabledForReportingButNotEnforced"} | Select-Object Id, DisplayName
+
+# Lister les politiques désactivées
+Get-MgIdentityConditionalAccessPolicy -All | Where-Object {$_.State -eq "disabled"} | Select-Object Id, DisplayName
+```
+
+</details>
