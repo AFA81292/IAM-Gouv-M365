@@ -19,12 +19,60 @@ Install-Module Microsoft.Graph -Scope CurrentUser
 * [Exo 1c : Création d'utilisateurs en masse](./01_User_Management/exo1c-bulk-create-users.ps1)
   * Objectif : Injection d'utilisateurs en masse via parsing du fichier [utilisateurs.csv](./01_User_Management/utilisateurs.csv).
 
+<details>
+<summary>Commandes utiles en une ligne — User Management</summary>
+
+```powershell
+# Lister tous les utilisateurs
+Get-MgUser -All | Select-Object Id, DisplayName, UserPrincipalName, Department
+
+# Rechercher un utilisateur par UPN
+Get-MgUser -UserId "upn@domaine.onmicrosoft.com" | Select-Object Id, DisplayName, JobTitle, Department
+
+# Désactiver un compte utilisateur
+Update-MgUser -UserId "id-utilisateur" -AccountEnabled $false
+
+# Supprimer un utilisateur
+Remove-MgUser -UserId "id-utilisateur"
+
+# Lister tous les rôles personnalisés
+Get-MgRoleManagementDirectoryRoleDefinition -All | Where-Object {$_.IsBuiltIn -eq $false} | Select-Object Id, DisplayName
+
+# Supprimer un rôle personnalisé (récupérer l'ID via Get-MgRoleManagementDirectoryRoleDefinition)
+Remove-MgRoleManagementDirectoryRoleDefinition -UnifiedRoleDefinitionId "id-du-role"
+```
+
+</details>
+
+---
+
 ### 02_Administrative_Units
 * [Exo 2a : AU statique et droits scopés](./02_Administrative_Units/exo2a-static-au-delegation.ps1)
-  * Objectif : Création d'une Administrative Unit statique, assignation de membres et délégation de rôle scopé au chef.
+  * Objectif : Création d'une Administrative Unit statique, assignation de membres et délégation de rôle scopé.
 * [Exo 2b : AU dynamique](./02_Administrative_Units/exo2b-dynamic-au-delegation.ps1)
   * Objectif : Création d'une Administrative Unit dynamique via règle d'appartenance.
   * Licence requise : Entra ID P1/P2.
+
+<details>
+<summary>Commandes utiles en une ligne — Administrative Units</summary>
+
+```powershell
+# Lister toutes les AUs
+Get-MgDirectoryAdministrativeUnit -All | Select-Object Id, DisplayName, MembershipType
+
+# Lister les membres d'une AU (récupérer l'ID via Get-MgDirectoryAdministrativeUnit)
+Get-MgDirectoryAdministrativeUnitMember -AdministrativeUnitId "id-de-lau" | Select-Object Id
+
+# Lister les admins scopés d'une AU
+Get-MgDirectoryAdministrativeUnitScopedRoleMember -AdministrativeUnitId "id-de-lau"
+
+# Supprimer une AU
+Remove-MgDirectoryAdministrativeUnit -AdministrativeUnitId "id-de-lau"
+```
+
+</details>
+
+---
 
 ### 03_Group_Management
 * [Exo 3a : Security Group statique](./03_Group_Management/exo3a-static-security-group.ps1)
@@ -33,6 +81,27 @@ Install-Module Microsoft.Graph -Scope CurrentUser
   * Objectif : Création d'un Security Group dynamique avec règle de membership automatique basée sur l'attribut département.
   * Licence requise : Entra ID P1/P2.
 
+<details>
+<summary>Commandes utiles en une ligne — Group Management</summary>
+
+```powershell
+# Lister tous les groupes
+Get-MgGroup -All | Select-Object Id, DisplayName, SecurityEnabled, GroupTypes
+
+# Lister les membres d'un groupe (récupérer l'ID via Get-MgGroup)
+Get-MgGroupMember -GroupId "id-du-groupe" | Select-Object Id
+
+# Lister les owners d'un groupe
+Get-MgGroupOwner -GroupId "id-du-groupe" | Select-Object Id
+
+# Supprimer un groupe
+Remove-MgGroup -GroupId "id-du-groupe"
+```
+
+</details>
+
+---
+
 ### 04_Entitlement_Management
 * [Exo 4 : Audit des ressources Entitlement Management](./04_Entitlement_Management/exo4-audit-entitlement.ps1)
   * Objectif : Lister les Catalogs, Access Packages, assignations actives et demandes en attente du tenant.
@@ -40,9 +109,9 @@ Install-Module Microsoft.Graph -Scope CurrentUser
 
 > **Note technique :** Les opérations d'écriture Entitlement Management (création d'Access Packages,
 > ajout de ressources, suppressions) sont redirigées par Graph vers un service backend IGA Microsoft séparé.
-> Ce service retourne systématiquement 403 sur mon tenant de Dev E5 — indépendamment des scopes,
+> Ce service retourne systématiquement 403 sur ce tenant de Dev E5 — indépendamment des scopes,
 > du Service Principal utilisé, et du rôle Global Admin. Testé via cmdlets PowerShell ET via
-> Invoke-MgGraphRequest. Les créations/suppressions sont donc gérées via GUI Entra Admin Center uniquement.
+> Invoke-MgGraphRequest. Les créations/suppressions sont gérées via GUI Entra Admin Center.
 
 <details>
 <summary>Commandes utiles en une ligne — Entitlement Management</summary>
@@ -63,6 +132,7 @@ Get-MgEntitlementManagementAssignmentRequest -Filter "state eq 'pendingApproval'
 
 </details>
 
+---
 
 ### 05_Conditional_Access
 * [Exo 5a : Audit des politiques Conditional Access](./05_Conditional_Access/exo5a-audit-conditional-access.ps1)
@@ -77,33 +147,4 @@ Get-MgEntitlementManagementAssignmentRequest -Filter "state eq 'pendingApproval'
   * State : Report-Only — bonne pratique avant activation en prod.
   * Licence requise : Entra ID P1/P2.
 * [Exo 5d : Modification de l'état d'une politique CA](./05_Conditional_Access/exo5d-ca-update-state.ps1)
-  * Objectif : Démonstration du cycle de vie d'une politique CA — passage de Report-Only à Enabled, puis retour en Report-Only.
-  * Licence requise : Entra ID P1/P2.
-
-> ⚠️ **Note technique :** Les opérations d'écriture CA nécessitent le scope
-> Policy.ReadWrite.ConditionalAccess. Ce scope est bloqué par WAM (Web Account Manager —
-> gestionnaire de tokens Windows) sur l'app générique Microsoft Graph Command Line Tools.
-> Solution : `-ContextScope Process` sur Connect-MgGraph force une session isolée
-> qui bypasse le cache WAM. Sans ce paramètre — 403 systématique.
-
-<details>
-<summary>Commandes utiles en une ligne — Conditional Access</summary>
-
-```powershell
-# Lister toutes les politiques CA
-Get-MgIdentityConditionalAccessPolicy -All | Select-Object Id, DisplayName, State
-
-# Lister uniquement les politiques actives
-Get-MgIdentityConditionalAccessPolicy -All | Where-Object {$_.State -eq "enabled"} | Select-Object Id, DisplayName
-
-# Lister les politiques en Report-Only
-Get-MgIdentityConditionalAccessPolicy -All | Where-Object {$_.State -eq "enabledForReportingButNotEnforced"} | Select-Object Id, DisplayName
-
-# Lister les politiques désactivées
-Get-MgIdentityConditionalAccessPolicy -All | Where-Object {$_.State -eq "disabled"} | Select-Object Id, DisplayName
-
-# Supprimer une politique CA (récupérer l'ID via Get-MgIdentityConditionalAccessPolicy)
-Remove-MgIdentityConditionalAccessPolicy -ConditionalAccessPolicyId "id-de-la-politique"
-```
-
-</details>
+  * Objectif : Démonstration du cycle de vie
