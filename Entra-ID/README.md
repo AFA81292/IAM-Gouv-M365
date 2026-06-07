@@ -38,7 +38,7 @@ Install-Module Microsoft.Graph -Scope CurrentUser
   * Objectif : Lister les Catalogs, Access Packages, assignations actives et demandes en attente du tenant.
   * Licence requise : Entra ID P2.
 
- **Note technique :** Les opérations d'écriture Entitlement Management (création d'Access Packages,
+> **Note technique :** Les opérations d'écriture Entitlement Management (création d'Access Packages,
 > ajout de ressources, suppressions) sont redirigées par Graph vers un service backend IGA Microsoft séparé.
 > Ce service retourne systématiquement 403 sur mon tenant de Dev E5 — indépendamment des scopes,
 > du Service Principal utilisé, et du rôle Global Admin. Testé via cmdlets PowerShell ET via
