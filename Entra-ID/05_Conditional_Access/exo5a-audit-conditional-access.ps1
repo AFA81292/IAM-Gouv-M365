@@ -1,5 +1,5 @@
 # ========================================================================================
-# Exercice 5 : Conditional Access — Audit des politiques du tenant
+# Exercice 5a : Conditional Access — Audit des politiques du tenant
 # ========================================================================================
 # Objectif : Lister l'état complet des politiques Conditional Access —
 # nom, état, conditions, grant controls.
