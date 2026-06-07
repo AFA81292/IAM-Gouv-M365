@@ -14,6 +14,10 @@
 # Reviewer : Geralt. Décision par défaut : Deny si pas de réponse.
 #
 # Astuce technique : -ContextScope Process bypasse le cache WAM.
+# Note SDK : toutes les clés du BodyParameter doivent être en camelCase strict
+# (ex: displayName, not DisplayName) — le SDK Graph ne traduit pas automatiquement
+# la casse lors de la sérialisation JSON, ce qui provoque des 400 silencieux.
+# Merci LLM =)
 # ========================================================================================
 
 # --- ÉTAPE 1 : Connexion à Microsoft Graph ---
@@ -40,7 +44,7 @@ Write-Host "1. Récupération du groupe et du reviewer..." -ForegroundColor Cyan
 $Group    = Get-MgGroup -Filter "displayName eq '$GroupName'" -ErrorAction Stop
 $Reviewer = Get-MgUser -UserId $ReviewerUPN -ErrorAction Stop
 
-if (-not $Group)    { Write-Error "Groupe '$GroupName' introuvable."   ; return }
+if (-not $Group)    { Write-Error "Groupe '$GroupName' introuvable."    ; return }
 if (-not $Reviewer) { Write-Error "Reviewer '$ReviewerUPN' introuvable." ; return }
 
 Write-Host "-> Groupe   : $($Group.DisplayName) ($($Group.Id))" -ForegroundColor Green
@@ -48,68 +52,82 @@ Write-Host "-> Reviewer : $($Reviewer.DisplayName)`n" -ForegroundColor Green
 
 # --- ÉTAPE 4 : Construction de la campagne ---
 # Une campagne Access Review se compose de :
-#   Scope    = ce qu'on révise — ici les membres user du groupe
-#   Reviewers = qui fait la révision — ici Geralt
-#   Settings  = durée, récurrence, décision automatique
+#   scope     = ce qu'on révise
+#   reviewers = qui fait la révision
+#   settings  = durée, récurrence, décision automatique
+#
+# IMPORTANT : toutes les clés sont en camelCase strict
+# Le SDK Graph ne traduit pas PascalCase → camelCase lors de la sérialisation JSON
+# Une clé mal casée = propriété inconnue = 400 BadRequest silencieux
 Write-Host "2. Création de la campagne '$ReviewName'..." -ForegroundColor Cyan
 
-$ReviewParams = @{
-    DisplayName             = $ReviewName
-    # Description visible par les admins dans le portail
-    DescriptionForAdmins    = "Révision trimestrielle des membres du groupe $GroupName."
-    # Description visible par le reviewer dans My Access
-    DescriptionForReviewers = "Veuillez réviser les membres de ce groupe et confirmer ou révoquer leurs accès."
+# Récupération de la date du jour pour aligner le pattern de récurrence
+# L'API exige que StartDate et DayOfMonth soient cohérents
+# DayOfMonth prend dynamiquement le jour actuel pour éviter le 400
+$CurrentDate = Get-Date
 
-    # Scope = ce qu'on révise
-    # "@odata.type" accessReviewQueryScope = révision basée sur une requête Graph
-    # Query "/groups/id/members/microsoft.graph.user" = membres utilisateurs du groupe
-    # Note : on filtre sur microsoft.graph.user pour exclure les groupes imbriqués
-    Scope = @{
+$ReviewParams = @{
+    displayName             = $ReviewName
+    # Description visible par les admins dans le portail Entra
+    descriptionForAdmins    = "Révision trimestrielle des membres du groupe $GroupName."
+    # Description visible par Geralt dans My Access quand il reçoit la demande
+    descriptionForReviewers = "Veuillez réviser les membres de ce groupe et confirmer ou révoquer leurs accès."
+
+    # scope = ce qu'on révise
+    # L'API Access Reviews v1.0 n'accepte que /members pour les groupes
+    # /transitiveMembers provoque un 400 — limitation de l'API v1.0
+    scope = @{
         "@odata.type" = "#microsoft.graph.accessReviewQueryScope"
-        Query         = "/groups/$($Group.Id)/members/microsoft.graph.user"
-        QueryType     = "MicrosoftGraph"
+        query         = "/groups/$($Group.Id)/members"
+        queryType     = "MicrosoftGraph"
     }
 
-    # Reviewers = qui révise
-    # Query "/users/id" = reviewer précis (vs "/me/directReports" pour les managers)
-    Reviewers = @(
+    # reviewers = qui révise
+    # "@odata.type" accessReviewReviewerScope obligatoire — sans lui l'API refuse
+    # Alternatives pour query : "./manager", "./owners", "/groups/id/members"
+    reviewers = @(
         @{
-            Query     = "/users/$($Reviewer.Id)"
-            QueryType = "MicrosoftGraph"
+            "@odata.type" = "#microsoft.graph.accessReviewReviewerScope"
+            query         = "/users/$($Reviewer.Id)"
+            queryType     = "MicrosoftGraph"
         }
     )
 
-    Settings = @{
+    settings = @{
         # Durée de chaque instance — 14 jours pour répondre avant décision automatique
-        InstanceDurationInDays = 14
+        instanceDurationInDays = 14
 
-        # Récurrence — tous les 3 mois (absoluteMonthly + interval 3)
-        # noEnd = la campagne tourne indéfiniment jusqu'à suppression manuelle
-        Recurrence = @{
-            Pattern = @{
-                # absoluteMonthly = même jour chaque mois
-                Type     = "absoluteMonthly"
-                Interval = 3
+        # Récurrence — tous les 3 mois, le même jour que le jour de création
+        # absoluteMonthly = même jour chaque mois
+        # dayOfMonth synchronisé avec startDate — exigence stricte de l'API
+        # interval = 3 : tous les 3 mois
+        # noEnd = tourne indéfiniment jusqu'à suppression manuelle
+        recurrence = @{
+            pattern = @{
+                type       = "absoluteMonthly"
+                dayOfMonth = $CurrentDate.Day
+                interval   = 3
             }
-            Range = @{
-                Type      = "noEnd"
-                StartDate = (Get-Date).ToString("yyyy-MM-dd")
+            range = @{
+                type      = "noEnd"
+                startDate = $CurrentDate.ToString("yyyy-MM-dd")
             }
         }
 
-        # DefaultDecision = décision automatique si le reviewer ne répond pas
-        # "Deny" = accès révoqué automatiquement — recommandé pour les groupes sensibles
-        # "Approve" = accès maintenu — moins sécurisé
+        # defaultDecision = décision automatique si le reviewer ne répond pas dans les 14 jours
+        # "Deny"           = accès révoqué — recommandé pour les groupes sensibles
+        # "Approve"        = accès maintenu — moins sécurisé
         # "Recommendation" = Microsoft décide selon l'activité du compte
-        DefaultDecisionEnabled          = $true
-        DefaultDecision                 = "Deny"
+        defaultDecisionEnabled          = $true
+        defaultDecision                 = "Deny"
 
-        # Justification obligatoire pour les approbations — traçabilité audit
-        JustificationRequiredOnApproval = $true
+        # Justification obligatoire pour chaque approbation — traçabilité audit
+        justificationRequiredOnApproval = $true
 
-        # Rappels par mail envoyés au reviewer avant expiration
-        ReminderNotificationsEnabled    = $true
-        NotificationToSelfEnabled       = $false
+        # mailNotificationsEnabled = active l'ensemble du flux mail Entra vers le reviewer
+        # reminderNotificationsEnabled = rappels avant expiration de l'instance
+        mailNotificationsEnabled        = $true
+        reminderNotificationsEnabled    = $true
     }
 }
 
@@ -117,7 +135,7 @@ try {
     $NewReview = New-MgIdentityGovernanceAccessReviewDefinition `
         -BodyParameter $ReviewParams -ErrorAction Stop
     Write-Host "-> Succès : Campagne créée avec l'ID : $($NewReview.Id)" -ForegroundColor Green
-    Write-Host "-> Récurrence  : trimestrielle — 14 jours par instance" -ForegroundColor Yellow
+    Write-Host "-> Récurrence  : trimestrielle — le $($CurrentDate.Day) de chaque mois" -ForegroundColor Yellow
     Write-Host "-> Décision par défaut : Deny (si pas de réponse sous 14 jours)" -ForegroundColor Yellow
 }
 catch {
@@ -126,7 +144,6 @@ catch {
 }
 
 # --- ÉTAPE 5 : Vérification depuis Entra (source de vérité) ---
-# Réplication Access Reviews — 10 secondes
 Write-Host "`n3. Vérification depuis Entra (attente 10s)..." -ForegroundColor Cyan
 Start-Sleep -Seconds 10
 
@@ -141,7 +158,7 @@ catch {
 }
 
 # --- ÉTAPE 6 : Nettoyage ---
-Remove-Variable Scopes, GroupName, ReviewerUPN, ReviewName, `
+Remove-Variable Scopes, GroupName, ReviewerUPN, ReviewName, CurrentDate, `
                 Group, Reviewer, ReviewParams, NewReview `
                 -ErrorAction SilentlyContinue
 
