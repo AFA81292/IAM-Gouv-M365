@@ -1,5 +1,7 @@
 # M365 Security & Identity - Engineering Repository
 
+Référentiel de scripts, notes de révision et Proof of Concepts (POC) pour les certifications **SC-300** et **SC-401**.
+
 Stack & Méthodologie d'ingénierie :
 
 * Conception & Gouvernance : Humaine (Moi-même) – Définition des architectures de sécurité, des politiques de conformité et des cas d'usage basés sur les programmes SC-300 et SC-401.
@@ -8,7 +10,6 @@ Stack & Méthodologie d'ingénierie :
 
 * Recette & Troubleshooting : Humaine (Moi-même) – Validation des déploiements sur tenant de test, analyse des codes d'erreur de l'API Microsoft Graph et correction des écarts.
 
-Référentiel de scripts, notes de révision et Proof of Concepts (POC) pour les certifications **SC-300** et **SC-401**.
 
 ##  Structure du dépôt
 * **[Entra-ID](./Entra-ID/)** : Gestion des identités, rôles et annuaire (SC-300).
