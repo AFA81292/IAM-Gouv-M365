@@ -185,13 +185,16 @@ Remove-MgIdentityConditionalAccessPolicy -ConditionalAccessPolicyId "id-de-la-po
   * Objectif : Lister les assignations éligibles et actives, les rôles PIM configurés et les demandes d'activation en cours.
   * Licence requise : Entra ID P2.
 * [Exo 6b : Assignation éligible d'un rôle via PIM](./06_PIM/exo6b-pim-eligible-assignment.ps1)
-  * Objectif : Rendre un utilisateur éligible à un rôle Entra via PIM — il devra activer le rôle manuellement avec justification.
+  * Objectif : Rendre un utilisateur éligible à un rôle Entra via PIM — activation sur demande avec justification obligatoire.
   * Licence requise : Entra ID P2.
 * [Exo 6c : Assignation active time-bound d'un rôle via PIM](./06_PIM/exo6c-pim-active-assignment.ps1)
-  * Objectif : Assigner un rôle de manière active et temporaire via PIM — accès immédiat avec expiration automatique.
+  * Objectif : Assigner un rôle de manière active et temporaire — accès immédiat avec expiration automatique.
+  * Licence requise : Entra ID P2.
+* [Exo 6d : Audit des rôles permanents à risque](./06_PIM/exo6d-pim-audit-permanent-roles.ps1)
+  * Objectif : Identifier les assignations permanentes sur les rôles sensibles — base d'un rapport sécurité en première semaine de mission.
   * Licence requise : Entra ID P2.
 
-> **Note technique :** PIM utilise le scope RoleManagement.ReadWrite.Directory.
+> **Note technique :** PIM utilise RoleManagement.ReadWrite.Directory.
 > Comme pour le Conditional Access, `-ContextScope Process` est requis pour bypasser le cache WAM.
 
 <details>
@@ -204,11 +207,46 @@ Get-MgRoleManagementDirectoryRoleEligibilitySchedule -All | Select-Object Id, Pr
 # Lister toutes les assignations actives
 Get-MgRoleManagementDirectoryRoleAssignmentSchedule -All | Select-Object Id, PrincipalId, RoleDefinitionId, Status
 
+# Lister les assignations permanentes uniquement
+Get-MgRoleManagementDirectoryRoleAssignmentSchedule -All | Where-Object { $_.ScheduleInfo.Expiration.Type -eq "noExpiration" } | Select-Object Id, PrincipalId, RoleDefinitionId
+
 # Lister les demandes d'activation en cours
 Get-MgRoleManagementDirectoryRoleAssignmentScheduleRequest -All | Select-Object Id, Action, Status, PrincipalId
 
-# Supprimer une assignation éligible (récupérer l'ID via Get-MgRoleManagementDirectoryRoleEligibilitySchedule)
+# Supprimer une assignation éligible
 Remove-MgRoleManagementDirectoryRoleEligibilitySchedule -UnifiedRoleEligibilityScheduleId "id-de-lassignation"
+```
+
+</details>
+
+---
+
+### 07_Access_Reviews
+* [Exo 7a : Audit des campagnes de révision](./07_Access_Reviews/exo7a-audit-access-reviews.ps1)
+  * Objectif : Lister toutes les campagnes Access Review — état, instances en cours, décisions prises.
+  * Licence requise : Entra ID P2.
+* [Exo 7b : Création d'une campagne de révision trimestrielle](./07_Access_Reviews/exo7b-create-access-review.ps1)
+  * Objectif : Création d'une campagne de révision récurrente sur un groupe — reviewer désigné, décision automatique Deny si pas de réponse.
+  * Licence requise : Entra ID P2.
+
+> **Note technique :** Access Reviews utilise AccessReview.ReadWrite.All.
+> `-ContextScope Process` requis pour bypasser le cache WAM.
+
+<details>
+<summary>Commandes utiles en une ligne — Access Reviews</summary>
+
+```powershell
+# Lister toutes les campagnes de révision
+Get-MgIdentityGovernanceAccessReviewDefinition -All | Select-Object Id, DisplayName, Status
+
+# Lister les instances en cours
+Get-MgIdentityGovernanceAccessReviewDefinitionInstance -AccessReviewScheduleDefinitionId "id-de-la-campagne" -All | Where-Object { $_.Status -eq "inProgress" }
+
+# Lister les décisions d'une instance
+Get-MgIdentityGovernanceAccessReviewDefinitionInstanceDecision -AccessReviewScheduleDefinitionId "id-campagne" -AccessReviewInstanceId "id-instance" -All | Select-Object Decision, Principal
+
+# Supprimer une campagne
+Remove-MgIdentityGovernanceAccessReviewDefinition -AccessReviewScheduleDefinitionId "id-de-la-campagne"
 ```
 
 </details>
