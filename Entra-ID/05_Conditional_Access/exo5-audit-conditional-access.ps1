@@ -7,10 +7,12 @@
 # Cas d'usage réel : un consultant IAM arrive en mission et veut un état des lieux
 # complet des politiques CA en place — actives, en Report-Only, désactivées.
 #
-# Note : Les opérations d'écriture (création, modification, suppression) nécessitent
-# un Service Principal dédié avec admin consent sur Policy.ReadWrite.ConditionalAccess.
-# L'app générique Microsoft Graph Command Line Tools ne supporte pas ce scope via WAM.
-# Ce script se limite donc à la lecture — use case audit/reporting.
+# Note :  Comme pour l'Entitlement Management, Les opérations d'écriture Conditionnal Access
+# sont redirigées par Graph vers un service backend IGA Microsoft séparé.
+# Ce service retourne systématiquement 403 sur mon tenant de Dev E5 — indépendamment des scopes,
+# du Service Principal utilisé, et du rôle Global Admin.
+# Les politiques CA sont donc gérées via GUI Entra Admin Center uniquement.
+# Ce script se limite à la lecture — use case audit/reporting. 
 # ========================================================================================
 
 # --- ÉTAPE 1 : Connexion à Microsoft Graph ---
