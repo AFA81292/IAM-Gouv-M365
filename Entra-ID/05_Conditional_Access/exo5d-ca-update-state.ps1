@@ -44,14 +44,14 @@ Write-Host "-> Politique trouvée : $($Policy.Id)" -ForegroundColor Green
 Write-Host "-> State actuel : $($Policy.State)`n" -ForegroundColor Yellow
 
 # --- ÉTAPE 4 : Passage en Enabled ---
-# Update-MgIdentityConditionalAccessPolicy = modifier une politique existante
-# On passe uniquement le paramètre à modifier — pas besoin de renvoyer tout l'objet
+# -BodyParameter @{ State = "enabled" } — on passe uniquement le paramètre à modifier
+# Pas besoin de renvoyer tout l'objet — Graph merge les modifications
 Write-Host "2. Activation de la politique (Report-Only → Enabled)..." -ForegroundColor Cyan
 
 try {
     Update-MgIdentityConditionalAccessPolicy `
         -ConditionalAccessPolicyId $Policy.Id `
-        -State "enabled" `
+        -BodyParameter @{ State = "enabled" } `
         -ErrorAction Stop
     Write-Host "-> Succès : Politique activée." -ForegroundColor Green
 }
@@ -61,8 +61,9 @@ catch {
 }
 
 # --- ÉTAPE 5 : Vérification ---
-Start-Sleep -Seconds 5
-Write-Host "3. Vérification depuis Entra (source de vérité)..." -ForegroundColor Cyan
+# Réplication CA lente — 15 secondes minimum
+Write-Host "3. Vérification depuis Entra (source de vérité, attente 15s)..." -ForegroundColor Cyan
+Start-Sleep -Seconds 15
 
 Get-MgIdentityConditionalAccessPolicy -ConditionalAccessPolicyId $Policy.Id |
     Select-Object Id, DisplayName, State
@@ -75,7 +76,7 @@ Write-Host "`n4. Retour en Report-Only (sécurité lab)..." -ForegroundColor Cya
 try {
     Update-MgIdentityConditionalAccessPolicy `
         -ConditionalAccessPolicyId $Policy.Id `
-        -State "enabledForReportingButNotEnforced" `
+        -BodyParameter @{ State = "enabledForReportingButNotEnforced" } `
         -ErrorAction Stop
     Write-Host "-> Succès : Politique repassée en Report-Only." -ForegroundColor Green
 }
@@ -84,7 +85,8 @@ catch {
 }
 
 # --- ÉTAPE 7 : Vérification finale ---
-Start-Sleep -Seconds 5
+Write-Host "5. Vérification finale (attente 15s)..." -ForegroundColor Cyan
+Start-Sleep -Seconds 15
 
 Get-MgIdentityConditionalAccessPolicy -ConditionalAccessPolicyId $Policy.Id |
     Select-Object Id, DisplayName, State
