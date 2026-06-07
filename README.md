@@ -6,7 +6,7 @@ Stack & Méthodologie d'ingénierie :
 
 * Conception & Gouvernance : Humaine (Moi-même) – Définition des architectures de sécurité, des politiques de conformité et des cas d'usage basés sur les programmes SC-300 et SC-401.
 
-* Génération du Code : Augmentée par IA (Claude 3.5/Sonnet) – Utilisation du prompt engineering pour générer les squelettes de scripts PowerShell et de requêtes KQL.
+* Génération du Code : Augmentée par IA (Claude 4.6 Sonnet) – Utilisation du prompt engineering pour générer les squelettes de scripts PowerShell et de requêtes KQL.
 
 * Recette & Troubleshooting : Humaine (Moi-même) – Validation des déploiements sur tenant de test, analyse des codes d'erreur de l'API Microsoft Graph et correction des écarts.
 
