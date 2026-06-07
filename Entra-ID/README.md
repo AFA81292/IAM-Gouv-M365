@@ -147,4 +147,68 @@ Get-MgEntitlementManagementAssignmentRequest -Filter "state eq 'pendingApproval'
   * State : Report-Only — bonne pratique avant activation en prod.
   * Licence requise : Entra ID P1/P2.
 * [Exo 5d : Modification de l'état d'une politique CA](./05_Conditional_Access/exo5d-ca-update-state.ps1)
-  * Objectif : Démonstration du cycle de vie
+  * Objectif : Démonstration du cycle de vie d'une politique CA — passage de Report-Only à Enabled, puis retour en Report-Only.
+  * Licence requise : Entra ID P1/P2.
+
+> **Note technique :** Les opérations d'écriture CA nécessitent le scope
+> Policy.ReadWrite.ConditionalAccess. Ce scope est bloqué par WAM (Web Account Manager —
+> gestionnaire de tokens Windows) sur l'app générique Microsoft Graph Command Line Tools.
+> Solution : `-ContextScope Process` sur Connect-MgGraph force une session isolée
+> qui bypasse le cache WAM. Sans ce paramètre — 403 systématique.
+
+<details>
+<summary>Commandes utiles en une ligne — Conditional Access</summary>
+
+```powershell
+# Lister toutes les politiques CA
+Get-MgIdentityConditionalAccessPolicy -All | Select-Object Id, DisplayName, State
+
+# Lister uniquement les politiques actives
+Get-MgIdentityConditionalAccessPolicy -All | Where-Object {$_.State -eq "enabled"} | Select-Object Id, DisplayName
+
+# Lister les politiques en Report-Only
+Get-MgIdentityConditionalAccessPolicy -All | Where-Object {$_.State -eq "enabledForReportingButNotEnforced"} | Select-Object Id, DisplayName
+
+# Lister les politiques désactivées
+Get-MgIdentityConditionalAccessPolicy -All | Where-Object {$_.State -eq "disabled"} | Select-Object Id, DisplayName
+
+# Supprimer une politique CA (récupérer l'ID via Get-MgIdentityConditionalAccessPolicy)
+Remove-MgIdentityConditionalAccessPolicy -ConditionalAccessPolicyId "id-de-la-politique"
+```
+
+</details>
+
+---
+
+### 06_PIM
+* [Exo 6a : Audit des assignations PIM](./06_PIM/exo6a-audit-pim.ps1)
+  * Objectif : Lister les assignations éligibles et actives, les rôles PIM configurés et les demandes d'activation en cours.
+  * Licence requise : Entra ID P2.
+* [Exo 6b : Assignation éligible d'un rôle via PIM](./06_PIM/exo6b-pim-eligible-assignment.ps1)
+  * Objectif : Rendre un utilisateur éligible à un rôle Entra via PIM — il devra activer le rôle manuellement avec justification.
+  * Licence requise : Entra ID P2.
+* [Exo 6c : Assignation active time-bound d'un rôle via PIM](./06_PIM/exo6c-pim-active-assignment.ps1)
+  * Objectif : Assigner un rôle de manière active et temporaire via PIM — accès immédiat avec expiration automatique.
+  * Licence requise : Entra ID P2.
+
+> **Note technique :** PIM utilise le scope RoleManagement.ReadWrite.Directory.
+> Comme pour le Conditional Access, `-ContextScope Process` est requis pour bypasser le cache WAM.
+
+<details>
+<summary>Commandes utiles en une ligne — PIM</summary>
+
+```powershell
+# Lister toutes les assignations éligibles
+Get-MgRoleManagementDirectoryRoleEligibilitySchedule -All | Select-Object Id, PrincipalId, RoleDefinitionId
+
+# Lister toutes les assignations actives
+Get-MgRoleManagementDirectoryRoleAssignmentSchedule -All | Select-Object Id, PrincipalId, RoleDefinitionId, Status
+
+# Lister les demandes d'activation en cours
+Get-MgRoleManagementDirectoryRoleAssignmentScheduleRequest -All | Select-Object Id, Action, Status, PrincipalId
+
+# Supprimer une assignation éligible (récupérer l'ID via Get-MgRoleManagementDirectoryRoleEligibilitySchedule)
+Remove-MgRoleManagementDirectoryRoleEligibilitySchedule -UnifiedRoleEligibilityScheduleId "id-de-lassignation"
+```
+
+</details>
