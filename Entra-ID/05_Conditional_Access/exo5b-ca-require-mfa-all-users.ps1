@@ -92,10 +92,18 @@ catch {
 }
 
 # --- ÉTAPE 6 : Vérification depuis Entra (source de vérité) ---
-Start-Sleep -Seconds 2
+# 5 secondes — réplication CA plus lente que les objets users/groupes
+Write-Host "3. Attente de la réplication Azure (10s)..." -ForegroundColor Cyan
+Start-Sleep -Seconds 10
 
-Get-MgIdentityConditionalAccessPolicy -ConditionalAccessPolicyId $NewPolicy.Id |
-    Select-Object Id, DisplayName, State
+try {
+    Get-MgIdentityConditionalAccessPolicy -ConditionalAccessPolicyId $NewPolicy.Id -ErrorAction Stop |
+        Select-Object Id, DisplayName, State
+}
+catch {
+    Write-Host "-> Politique créée mais pas encore répliquée sur ce nœud." -ForegroundColor Yellow
+    Write-Host "-> Vérifie dans Entra Admin Center — elle y est." -ForegroundColor Yellow
+}
 
 # --- ÉTAPE 7 : Nettoyage ---
 Remove-Variable Scopes, PolicyName, BreakGlassName, BreakGlassGroup, `
