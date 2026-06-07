@@ -34,19 +34,22 @@ Install-Module Microsoft.Graph -Scope CurrentUser
   * Licence requise : Entra ID P1/P2.
 
 ### 04_Entitlement_Management
-* [Exo 4a : Création d'un Access Package complet](./05_Entitlement_Management/exo4a-create-access-package.ps1)
+* [Exo 4a : Création d'un Access Package complet](./04_Entitlement_Management/exo4a-create-access-package.ps1)
   * Objectif : Création d'un Catalog, d'un Access Package, ajout d'une ressource groupe et configuration d'une policy d'assignation avec approbation manager.
   * Licence requise : Entra ID P2.
-* [Exo 4b : Création en masse d'Access Packages depuis CSV](./05_Entitlement_Management/exo4b-bulk-create-access-packages.ps1)
+* [Exo 4b : Création en masse d'Access Packages depuis CSV](./04_Entitlement_Management/exo4b-bulk-create-access-packages.ps1)
   * Objectif : Provisioning en masse d'Access Packages via parsing d'un fichier CSV.
   * Licence requise : Entra ID P2.
-* [Exo 4c : Audit des demandes d'accès en attente](./05_Entitlement_Management/exo4c-audit-pending-requests.ps1)
+* [Exo 4c : Audit des demandes d'accès en attente](./04_Entitlement_Management/exo4c-audit-pending-requests.ps1)
   * Objectif : Lister toutes les demandes d'accès en attente d'approbation sur le tenant.
   * Licence requise : Entra ID P2.
-* [Exo 4d : Nettoyage des Access Packages expirés](./05_Entitlement_Management/exo4d-cleanup-expired-packages.ps1)
+* [Exo 4d : Nettoyage des Access Packages expirés](./04_Entitlement_Management/exo4d-cleanup-expired-packages.ps1)
   * Objectif : Identifier et supprimer les Access Packages expirés ou inutilisés.
   * Licence requise : Entra ID P2.
 
+
+<details>
+<summary>Commandes utiles en une ligne - Entitlement_Management </summary>
 > **Commandes utiles en une ligne :**
 > ```powershell
 > # Lister tous les Access Packages du tenant
@@ -67,3 +70,5 @@ Install-Module Microsoft.Graph -Scope CurrentUser
 > # Supprimer un Catalog (récupérer l'ID via Get-MgEntitlementManagementCatalog)
 > Remove-MgEntitlementManagementCatalog -AccessPackageCatalogId "id-du-catalog"
 > ```
+<details>
+
