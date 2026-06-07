@@ -66,7 +66,7 @@ Get-MgEntitlementManagementAssignmentRequest -Filter "state eq 'pendingApproval'
 
 ### 05_Conditional_Access
 * [Exo 5a : Audit des politiques Conditional Access](./05_Conditional_Access/exo5a-audit-conditional-access.ps1)
-  * Objectif : Lister toutes les politiques CA du tenant — état, conditions, répartition actives/Report-Only/désactivées.
+  * Objectif : Lister toutes les politiques CA du tenant — état, répartition actives/Report-Only/désactivées.
   * Licence requise : Entra ID P1/P2.
 * [Exo 5b : MFA obligatoire pour tous les utilisateurs](./05_Conditional_Access/exo5b-ca-require-mfa-all-users.ps1)
   * Objectif : Création d'une politique CA imposant le MFA à tous les utilisateurs avec exclusion d'un groupe break-glass.
@@ -76,8 +76,11 @@ Get-MgEntitlementManagementAssignmentRequest -Filter "state eq 'pendingApproval'
   * Objectif : Création d'une politique CA bloquant les protocoles legacy (SMTP, IMAP, POP3, Exchange ActiveSync) qui ne supportent pas le MFA.
   * State : Report-Only — bonne pratique avant activation en prod.
   * Licence requise : Entra ID P1/P2.
+* [Exo 5d : Modification de l'état d'une politique CA](./05_Conditional_Access/exo5d-ca-update-state.ps1)
+  * Objectif : Démonstration du cycle de vie d'une politique CA — passage de Report-Only à Enabled, puis retour en Report-Only.
+  * Licence requise : Entra ID P1/P2.
 
-> **Note technique :** Les opérations d'écriture CA nécessitent le scope
+> ⚠️ **Note technique :** Les opérations d'écriture CA nécessitent le scope
 > Policy.ReadWrite.ConditionalAccess. Ce scope est bloqué par WAM (Web Account Manager —
 > gestionnaire de tokens Windows) sur l'app générique Microsoft Graph Command Line Tools.
 > Solution : `-ContextScope Process` sur Connect-MgGraph force une session isolée
