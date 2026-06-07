@@ -65,22 +65,29 @@ Get-MgEntitlementManagementAssignmentRequest -Filter "state eq 'pendingApproval'
 
 
 ### 05_Conditional_Access
-* [Exo 5 : Audit des politiques Conditional Access](./05_Conditional_Access/exo5-audit-conditional-access.ps1)
-  * Objectif : Lister toutes les politiques CA du tenant — état, conditions, grant controls.
+* [Exo 5a : Audit des politiques Conditional Access](./05_Conditional_Access/exo5a-audit-conditional-access.ps1)
+  * Objectif : Lister toutes les politiques CA du tenant — état, conditions, répartition actives/Report-Only/désactivées.
+  * Licence requise : Entra ID P1/P2.
+* [Exo 5b : MFA obligatoire pour tous les utilisateurs](./05_Conditional_Access/exo5b-ca-require-mfa-all-users.ps1)
+  * Objectif : Création d'une politique CA imposant le MFA à tous les utilisateurs avec exclusion d'un groupe break-glass.
+  * State : Report-Only — bonne pratique avant activation en prod.
+  * Licence requise : Entra ID P1/P2.
+* [Exo 5c : Blocage des protocoles d'authentification legacy](./05_Conditional_Access/exo5c-ca-block-legacy-auth.ps1)
+  * Objectif : Création d'une politique CA bloquant les protocoles legacy (SMTP, IMAP, POP3, Exchange ActiveSync) qui ne supportent pas le MFA.
+  * State : Report-Only — bonne pratique avant activation en prod.
   * Licence requise : Entra ID P1/P2.
 
-> **Note technique :** Comme pour l'Entitlement Management, Les opérations d'écriture Conditionnal Access
->  sont redirigées par Graph vers un service backend IGA Microsoft séparé.
-> Ce service retourne systématiquement 403 sur mon tenant de Dev E5 — indépendamment des scopes,
-> du Service Principal utilisé, et du rôle Global Admin.
-> Les politiques CA sont donc gérées via GUI Entra Admin Center uniquement.
-> Ce script se limite à la lecture — use case audit/reporting.
+> **Note technique :** Les opérations d'écriture CA nécessitent le scope
+> Policy.ReadWrite.ConditionalAccess. Ce scope est bloqué par WAM (Web Account Manager —
+> gestionnaire de tokens Windows) sur l'app générique Microsoft Graph Command Line Tools.
+> Solution : `-ContextScope Process` sur Connect-MgGraph force une session isolée
+> qui bypasse le cache WAM. Sans ce paramètre — 403 systématique.
 
 <details>
 <summary>Commandes utiles en une ligne — Conditional Access</summary>
 
 ```powershell
-# Lister toutes les politiques CA du tenant
+# Lister toutes les politiques CA
 Get-MgIdentityConditionalAccessPolicy -All | Select-Object Id, DisplayName, State
 
 # Lister uniquement les politiques actives
@@ -91,6 +98,9 @@ Get-MgIdentityConditionalAccessPolicy -All | Where-Object {$_.State -eq "enabled
 
 # Lister les politiques désactivées
 Get-MgIdentityConditionalAccessPolicy -All | Where-Object {$_.State -eq "disabled"} | Select-Object Id, DisplayName
+
+# Supprimer une politique CA (récupérer l'ID via Get-MgIdentityConditionalAccessPolicy)
+Remove-MgIdentityConditionalAccessPolicy -ConditionalAccessPolicyId "id-de-la-politique"
 ```
 
 </details>
