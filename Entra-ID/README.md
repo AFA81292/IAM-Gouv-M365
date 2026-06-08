@@ -18,7 +18,10 @@ Install-Module Microsoft.Graph -Scope CurrentUser
   * Objectif : Provisioning unitaire d'un utilisateur via Graph API.
 * [Exo 1c : Création d'utilisateurs en masse](./01_User_Management/exo1c-bulk-create-users.ps1)
   * Objectif : Injection d'utilisateurs en masse via parsing du fichier [utilisateurs.csv](./01_User_Management/utilisateurs.csv).
-
+* [Exo 1d : Attribution de licence unitaire](./01_User_Management/exo1d-single-licence-assignment.ps1)
+  * Objectif : Attribuer une licence Microsoft 365 à un utilisateur via Graph API.
+* [Exo 1e : Attribution de licence en masse](./01_User_Management/exo1e-bulk-licence-assignment.ps1)
+  * Objectif : Attribuer la même licence à un ensemble d'utilisateurs via un fichier CSV.
 <details>
 <summary>Commandes utiles en une ligne — User Management</summary>
 
@@ -40,6 +43,9 @@ Get-MgRoleManagementDirectoryRoleDefinition -All | Where-Object {$_.IsBuiltIn -e
 
 # Supprimer un rôle personnalisé (récupérer l'ID via Get-MgRoleManagementDirectoryRoleDefinition)
 Remove-MgRoleManagementDirectoryRoleDefinition -UnifiedRoleDefinitionId "id-du-role"
+
+# Connaitre le nombre de licences disponibles/totaux
+Get-MgSubscribedSku | Select-Object SkuPartNumber, ConsumedUnits, @{N="Total";E={$_.PrepaidUnits.Enabled}}
 ```
 
 </details>
