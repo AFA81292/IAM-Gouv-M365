@@ -96,6 +96,37 @@ foreach ($User in $UsersToLicense) {
 
 Write-Host "`n--- Fin du traitement ---" -ForegroundColor Cyan
 
+# Moyen sympa de jouer avec les if/elseif/else s'il faut traiter plusieurs types de licence :
+# Simulation de la variable (ex: récupérée via un Get-MgUser)
+# $personne = "FR"
+# 
+# if ($personne -eq "FR") {
+#     $Licence = "W"
+#     Write-Host "Attribution de la licence W (France)" -ForegroundColor Green
+# } 
+# elseif ($personne -eq "EN") {
+#     $Licence = "Y"
+#     Write-Host "Attribution de la licence Y (UK/US)" -ForegroundColor Green
+# } 
+# else {
+#     # Ici on gère le cas "SP" (Espagne) ou toute autre valeur par défaut
+#     $Licence = "Z"
+#     Write-Host "Attribution de la licence Z (Par défaut / Espagne)" -ForegroundColor Yellow
+# }
+# 
+# OU ALORS
+# $personne = "SP"
+# 
+# switch ($personne) {
+#     "FR"    { $Licence = "W" }
+#     "EN"    { $Licence = "Y" }
+#     "SP"    { $Licence = "Z" }
+#     Default { $Licence = "Standard" } # Si le pays n'est pas dans la liste
+# }
+
+Write-Host "Licence finale à appliquer : $Licence" -ForegroundColor Cyan
+
+
 # --- ÉTAPE 6 : Nettoyage ---
 Remove-Variable Scopes, SkuPartNumber, PathCSV, TargetSku, Available, `
                 UsersToLicense, User, UserObject, ExistingLicenses, `
