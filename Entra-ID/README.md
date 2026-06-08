@@ -19,9 +19,9 @@ Install-Module Microsoft.Graph -Scope CurrentUser
 * [Exo 1c : Création d'utilisateurs en masse](./01_User_Management/exo1c-bulk-create-users.ps1)
   * Objectif : Injection d'utilisateurs en masse via parsing du fichier [utilisateurs.csv](./01_User_Management/utilisateurs.csv).
 * [Exo 1d : Attribution de licence unitaire](./01_User_Management/exo1d-single-licence-assignment.ps1)
-  * Objectif : Attribuer une licence Microsoft 365 à un utilisateur via Graph API.
+  * Objectif : Attribuer une licence M365 à un utilisateur — vérification du UsageLocation, contrôle des places disponibles, attribution via Graph API.
 * [Exo 1e : Attribution de licence en masse](./01_User_Management/exo1e-bulk-licence-assignment.ps1)
-  * Objectif : Attribuer la même licence à un ensemble d'utilisateurs via un fichier CSV.
+  * Objectif : Attribuer la même licence à un ensemble d'utilisateurs depuis un CSV — détection des doublons, gestion des UsageLocation manquants.
 <details>
 <summary>Commandes utiles en une ligne — User Management</summary>
 
@@ -44,8 +44,14 @@ Get-MgRoleManagementDirectoryRoleDefinition -All | Where-Object {$_.IsBuiltIn -e
 # Supprimer un rôle personnalisé (récupérer l'ID via Get-MgRoleManagementDirectoryRoleDefinition)
 Remove-MgRoleManagementDirectoryRoleDefinition -UnifiedRoleDefinitionId "id-du-role"
 
-# Connaitre le nombre de licences disponibles/totaux
+# Lister les licences disponibles dans le tenant
 Get-MgSubscribedSku | Select-Object SkuPartNumber, ConsumedUnits, @{N="Total";E={$_.PrepaidUnits.Enabled}}
+
+# Lister les licences d'un utilisateur
+Get-MgUserLicenseDetail -UserId "upn@domaine.onmicrosoft.com" | Select-Object SkuPartNumber
+
+# Retirer une licence à un utilisateur
+Set-MgUserLicense -UserId "id-utilisateur" -AddLicenses @() -RemoveLicenses @("sku-id")
 ```
 
 </details>
