@@ -8,7 +8,9 @@ Stack & Méthodologie :
   
 * Développement des scripts : Assistance IA (Claude) via prompt engineering détaillé, suivi d’une relecture ligne par ligne, compréhension approfondie du fonctionnement, tests sur tenant Dev E5 et contextualisation métier.
   
-* Objectif : Montrer que, bien que venant d’un background AMOA/gouvernance fonctionnelle, je suis capable de manipuler, comprendre et produire du code PowerShell + KQL pour supporter des sujets IAM et Conformité.
+* Recette  Troubleshooting : Humaine (moi-même) - Validation des déploiements sur tenant de test analyse des codes d'erreur de l'API Microsoft Graph et correction des écarts.
+
+* Approche globale : Focus sur la compréhension des mécanismes techniques et leur mise en perspective avec les enjeux de gouvernance IAM et conformité.
 
 
 ##  Structure du dépôt
