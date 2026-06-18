@@ -1,14 +1,14 @@
-# M365 Security & Identity - Engineering Repository
+# M365-Identity-Governance-Labs-SC300-SC401
 
 Référentiel de scripts, notes de révision et Proof of Concepts (POC) pour les certifications **SC-300** et **SC-401**.
 
-Stack & Méthodologie d'ingénierie :
+Stack & Méthodologie :
 
-* Conception & Gouvernance : Humaine (Moi-même) – Définition des architectures de sécurité, des politiques de conformité et des cas d'usage basés sur les programmes SC-300 et SC-401.
-
-* Génération du Code : Augmentée par IA (Claude 4.6 Sonnet) – Utilisation du prompt engineering pour générer les squelettes de scripts PowerShell et de requêtes KQL.
-
-* Recette & Troubleshooting : Humaine (Moi-même) – Validation des déploiements sur tenant de test, analyse des codes d'erreur de l'API Microsoft Graph et correction des écarts.
+* Conception & Gouvernance métier : Humaine (moi-même) – Définition des scénarios, architectures de sécurité, politiques de conformité et cas d’usage concrets basés sur les exigences SC-300 et SC-401.
+  
+* Développement des scripts : Assistance IA (Claude) via prompt engineering détaillé, suivi d’une relecture ligne par ligne, compréhension approfondie du fonctionnement, tests sur tenant Dev E5 et contextualisation métier.
+  
+* Objectif : Montrer que, bien que venant d’un background AMOA/gouvernance fonctionnelle, je suis capable de manipuler, comprendre et produire du code PowerShell + KQL pour supporter des sujets IAM et Conformité.
 
 
 ##  Structure du dépôt
