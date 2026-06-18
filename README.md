@@ -4,13 +4,13 @@ Référentiel de scripts, notes de révision et Proof of Concepts (POC) pour les
 
 Stack & Méthodologie :
 
-* Conception & Gouvernance métier : Humaine (moi-même) – Définition des scénarios, architectures de sécurité, politiques de conformité et cas d’usage concrets basés sur les exigences SC-300 et SC-401.
-  
-* Développement des scripts : Assistance IA (Claude) via prompt engineering détaillé, suivi d’une relecture ligne par ligne, compréhension approfondie du fonctionnement, tests sur tenant Dev E5 et contextualisation métier.
-  
-* Recette  Troubleshooting : Humaine (moi-même) - Validation des déploiements sur tenant de test analyse des codes d'erreur de l'API Microsoft Graph et correction des écarts.
+* Conception & Gouvernance métier : Définition des scénarios, architectures de sécurité, politiques de conformité et cas d’usage concrets dans un contexte de gouvernance M365.
 
-* Approche globale : Focus sur la compréhension des mécanismes techniques et leur mise en perspective avec les enjeux de gouvernance IAM et conformité.
+* Implémentation technique : Développement de scripts PowerShell et requêtes KQL avec assistance IA (Claude), via prompts structurés, relecture ligne par ligne, tests sur tenant Microsoft 365 E5 et validation approfondie.
+
+* Validation & Troubleshooting : Analyse des erreurs Microsoft Graph API, correction des écarts et contextualisation métier.
+
+* Objectif global : Démontrer une capacité à comprendre et à manipuler les briques techniques Entra ID et Purview tout en les reliant aux enjeux de gouvernance opérationnelle et de conformité.
 
 
 ##  Structure du dépôt
