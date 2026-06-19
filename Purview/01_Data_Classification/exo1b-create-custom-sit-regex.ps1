@@ -100,11 +100,12 @@ $RulePackageXml = @"
 Write-Host "-> XML construit." -ForegroundColor Green
 
 # --- ÉTAPE 3 : Upload du Rule Package dans Purview ---
-# New-DlpSensitiveInformationTypeRulePackage attend le XML encodé en bytes
 Write-Host "`n3. Upload du Rule Package dans Purview..." -ForegroundColor Cyan
 
 try {
-    $XmlBytes = [System.Text.Encoding]::Unicode.GetBytes($RulePackageXml)
+    # UTF-8 sans BOM — seul encoding accepté par Purview pour les rule packages
+    $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+    $XmlBytes  = $Utf8NoBom.GetBytes($RulePackageXml)
     New-DlpSensitiveInformationTypeRulePackage -FileData $XmlBytes -ErrorAction Stop
     Write-Host "-> Rule Package uploadé avec succès." -ForegroundColor Green
 }
