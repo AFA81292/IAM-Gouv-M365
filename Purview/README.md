@@ -58,6 +58,12 @@ Remove-DlpSensitiveInformationType -Identity "Nom-du-SIT-custom"
 
 # Supprimer un rule package custom complet
 Remove-DlpSensitiveInformationTypeRulePackage -Identity "Nom-du-package"
+
+# Supprimer un SIT fingerprint
+Remove-DlpSensitiveInformationType -Identity "Nom-du-SIT-fingerprint"
+
+# Fermer proprement toutes les sessions PowerShell
+Get-PSSession | Remove-PSSession
 ```
 
 </details>
