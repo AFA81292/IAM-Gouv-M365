@@ -15,5 +15,6 @@ Stack & Méthodologie :
 
 ##  Structure du dépôt
 * **[Entra-ID](./Entra-ID/)** : Gestion des identités, rôles et annuaire (SC-300).
+* **[Purview](./Purview/)** : Protection de l'information, DLP, rétention et audit (SC-401).
 
 
