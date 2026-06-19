@@ -88,7 +88,8 @@ if ($TargetSIT) {
 # Utile pour avoir une référence locale de tous les SIT disponibles
 Write-Host "`n4. Export CSV optionnel..." -ForegroundColor Cyan
 
-$ExportPath = "$env:USERPROFILE\Desktop\SIT-Audit-$(Get-Date -Format 'yyyyMMdd').csv"
+# Mon bureau est dans D:\ on modifie donc le Path pour le rendre universel
+$ExportPath = [Environment]::GetFolderPath("Desktop") + "\SIT-Audit-$(Get-Date -Format 'yyyyMMdd').csv"
 $AllSIT | Select-Object Name, Publisher, RecommendedConfidence, MinCount, MaxCount |
     Export-Csv -Path $ExportPath -NoTypeInformation -Encoding UTF8
 
