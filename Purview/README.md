@@ -68,6 +68,7 @@ Get-PSSession | Remove-PSSession
 
 </details>
 
+---
 
 ### 02_Sensitivity_Labels
 * [Exo 2a : Création d'un label parent](./02_Sensitivity_Labels/exo2a-create-parent-label.ps1)
