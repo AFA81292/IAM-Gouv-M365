@@ -68,4 +68,64 @@ Get-PSSession | Remove-PSSession
 
 </details>
 
+
+### 02_Sensitivity_Labels
+* [Exo 2a : Création d'un label parent](./02_Sensitivity_Labels/exo2a-create-parent-label.ps1)
+  * Objectif : Créer un label de sensibilité parent `Confidentiel` avec marquage visuel uniquement — watermark, header, footer. Pas de chiffrement à ce niveau.
+* [Exo 2b : Création d'un sublabel avec chiffrement admin-defined](./02_Sensitivity_Labels/exo2b-create-sublabel-encryption.ps1)
+  * Objectif : Créer un sublabel `Confidentiel - Interne` avec chiffrement — permissions définies par l'admin, co-auteurs désignés parmi les utilisateurs du tenant.
+  * Licence requise : Microsoft Purview Information Protection (inclus E5).
+* [Exo 2c : Création d'un sublabel Do Not Forward](./02_Sensitivity_Labels/exo2c-create-sublabel-dnf.ps1)
+  * Objectif : Créer un sublabel `Confidentiel - Externe` avec chiffrement Do Not Forward — protection des emails envoyés hors du tenant.
+  * Licence requise : Microsoft Purview Information Protection (inclus E5).
+* [Exo 2d : Publication des labels via une Label Policy](./02_Sensitivity_Labels/exo2d-publish-label-policy.ps1)
+  * Objectif : Publier les labels créés vers un groupe de test via une Label Policy — rendre les labels disponibles dans les apps Office des utilisateurs ciblés.
+  * Licence requise : Microsoft Purview Information Protection (inclus E5).
+* [Exo 2e : Politique d'auto-labeling côté service](./02_Sensitivity_Labels/exo2e-create-autolabel-policy.ps1)
+  * Objectif : Créer une politique d'auto-labeling sur Exchange — détection automatique du SIT custom créé en 1b et application du label `Confidentiel - Interne` sans intervention utilisateur.
+  * Licence requise : Microsoft Purview Information Protection (inclus E5).
+* [Exo 2f : Audit des labels et policies](./02_Sensitivity_Labels/exo2f-audit-labels.ps1)
+  * Objectif : Lister les labels, sublabels, policies de publication et policies d'auto-labeling — état complet de la configuration Information Protection du tenant.
+
+> **Note technique :** Les labels de sensibilité peuvent prendre jusqu'à 24h pour se propager
+> dans les apps Office des utilisateurs après publication. Sur un tenant dev, ce délai est
+> souvent réduit mais reste variable. Les tester via le portail Purview ou via les cmdlets
+> d'audit est instantané — l'attente concerne uniquement la disponibilité côté client Office.
+
+<details>
+<summary>Commandes utiles en une ligne — Sensitivity Labels</summary>
+
+```powershell
+# Lister tous les labels de sensibilité
+Get-Label | Select-Object Name, DisplayName, Priority, ContentType, ParentId | Sort-Object Priority
+
+# Lister uniquement les labels parents (pas de ParentId)
+Get-Label | Where-Object { -not $_.ParentId } | Select-Object Name, DisplayName, Priority
+
+# Lister les sublabels d'un label parent (récupérer le ParentId via Get-Label)
+Get-Label | Where-Object { $_.ParentId -eq "id-du-parent" } | Select-Object Name, DisplayName
+
+# Afficher le détail complet d'un label
+Get-Label -Identity "Nom-du-label" | Format-List
+
+# Supprimer un label (supprimer les sublabels d'abord)
+Remove-Label -Identity "Nom-du-label"
+
+# Lister toutes les Label Policies
+Get-LabelPolicy | Select-Object Name, Labels, ExchangeLocation
+
+# Supprimer une Label Policy
+Remove-LabelPolicy -Identity "Nom-de-la-policy"
+
+# Lister toutes les politiques d'auto-labeling
+Get-AutoSensitivityLabelPolicy | Select-Object Name, Mode, AutoLabelingWorkload
+
+# Supprimer une politique d'auto-labeling
+Remove-AutoSensitivityLabelPolicy -Identity "Nom-de-la-policy"
+```
+
+</details>
+
+---
+
 ---
