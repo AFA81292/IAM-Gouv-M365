@@ -40,10 +40,14 @@
 # ========================================================================================
 
 # --- OUVERTURE ---
-# Disconnect-ExchangeOnline ferme à la fois les sessions IPPSSession ET ExchangeOnline
-# C'est le comportement voulu du module — une seule cmdlet de déconnexion pour les deux
-Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue
-Connect-IPPSSession -UserPrincipalName GeptorAdmin@0n4mg.onmicrosoft.com
+# Fermeture de toutes les sessions PowerShell actives
+# Get-PSSession | Remove-PSSession est préféré à Disconnect-ExchangeOnline -Confirm:$false
+# car les versions récentes du module ExchangeOnlineManagement ignorent -Confirm:$false
+# et affichent une confirmation interactive qui bloque le script.
+# Get-PSSession récupère toutes les sessions PS actives (IPPS, ExchangeOnline, autres)
+# et Remove-PSSession les ferme toutes proprement sans prompt.
+Get-PSSession | Remove-PSSession
+Connect-IPPSSession -UserPrincipalName GeptorAdmin@0n4mg.onmicrosoft.com -ShowBanner:$false
 
 # --- ÉTAPE 1 : Génération des identifiants uniques ---
 Write-Host "1. Génération des identifiants uniques..." -ForegroundColor Cyan
@@ -197,5 +201,5 @@ Remove-Variable RulePackageId, EntityId, SITName, SITDescription, RulePackageXml
                 Utf8NoBom, XmlBytes, NewSIT -ErrorAction SilentlyContinue
 
 # --- FERMETURE ---
-Disconnect-ExchangeOnline -Confirm:$false
+Get-PSSession | Remove-PSSession
 Write-Host "`nSession fermée. Mémoire locale nettoyée." -ForegroundColor Magenta
