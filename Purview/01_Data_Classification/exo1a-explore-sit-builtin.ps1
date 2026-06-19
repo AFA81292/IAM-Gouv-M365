@@ -17,12 +17,16 @@
 # ========================================================================================
 
 # --- OUVERTURE : Fermeture d'une session fantôme éventuelle ---
-# Disconnect-ExchangeOnline couvre à la fois les sessions IPPSSession et ExchangeOnline
-# -Confirm:$false évite la confirmation interactive qui bloquerait le script
-Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue
+# Fermeture de toutes les sessions PowerShell actives
+# Get-PSSession | Remove-PSSession est préféré à Disconnect-ExchangeOnline -Confirm:$false
+# car les versions récentes du module ExchangeOnlineManagement ignorent -Confirm:$false
+# et affichent une confirmation interactive qui bloque le script.
+# Get-PSSession récupère toutes les sessions PS actives (IPPS, ExchangeOnline, autres)
+# et Remove-PSSession les ferme toutes proprement sans prompt.
+Get-PSSession | Remove-PSSession
 
 # --- ÉTAPE 1 : Connexion ---
-Connect-IPPSSession -UserPrincipalName GeptorAdmin@0n4mg.onmicrosoft.com
+Connect-IPPSSession -UserPrincipalName GeptorAdmin@0n4mg.onmicrosoft.com -ShowBanner:$false
 
 # --- ÉTAPE 2 : Vue d'ensemble — tous les SIT disponibles ---
 # Le tenant E5 expose plusieurs centaines de SIT built-in Microsoft.
@@ -100,6 +104,6 @@ Remove-Variable AllSIT, BuiltIn, Custom, Financial, Identity, Health, TargetSIT,
     -ErrorAction SilentlyContinue
 
 # --- FERMETURE : Fermer la porte derrière soi ---
-Disconnect-ExchangeOnline -Confirm:$false
+Get-PSSession | Remove-PSSession
 
 Write-Host "`nSession fermée. Mémoire locale nettoyée." -ForegroundColor Magenta
