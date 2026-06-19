@@ -16,7 +16,13 @@
 # ========================================================================================
 
 # --- OUVERTURE ---
-Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue
+# Fermeture de toutes les sessions PowerShell actives
+# Get-PSSession | Remove-PSSession est préféré à Disconnect-ExchangeOnline -Confirm:$false
+# car les versions récentes du module ExchangeOnlineManagement ignorent -Confirm:$false
+# et affichent une confirmation interactive qui bloque le script.
+# Get-PSSession récupère toutes les sessions PS actives (IPPS, ExchangeOnline, autres)
+# et Remove-PSSession les ferme toutes proprement sans prompt.
+Get-PSSession | Remove-PSSession
 Connect-IPPSSession -UserPrincipalName GeptorAdmin@0n4mg.onmicrosoft.com -ShowBanner:$false
 
 # --- ÉTAPE 1 : Vue d'ensemble du tenant ---
@@ -105,4 +111,5 @@ Remove-Variable AllSIT, BuiltIn, Custom, SITsAttendus, SIT, Nom, `
                 AllPackages, CustomPackages, ExportPath -ErrorAction SilentlyContinue
 
 # --- FERMETURE ---
-Disconnect-ExchangeOnline
+Get-PSSession | Remove-PSSession
+Write-Host "`nSession fermée. Mémoire locale nettoyée." -ForegroundColor Magenta
