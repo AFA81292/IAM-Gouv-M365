@@ -11,12 +11,12 @@ Install-Module ExchangeOnlineManagement -Scope CurrentUser
 
 Connexion à Security & Compliance PowerShell (vecteur principal pour labels, DLP, rétention, audit) :
 ```powershell
-Connect-IPPSSession -UserPrincipalName admin@tenant.onmicrosoft.com
+Connect-IPPSSession -UserPrincipalName GeptorAdmin@0n4mg.onmicrosoft.com
 ```
 
 Certains exercices (Message Encryption, Transport Rules) nécessitent également une connexion Exchange Online :
 ```powershell
-Connect-ExchangeOnline -UserPrincipalName admin@tenant.onmicrosoft.com
+Connect-ExchangeOnline -UserPrincipalName GeptorAdmin@0n4mg.onmicrosoft.com
 ```
 
 ## Index des Exercices (1 fichier = 1 exo)
@@ -44,20 +44,20 @@ Connect-ExchangeOnline -UserPrincipalName admin@tenant.onmicrosoft.com
 # Lister tous les SIT disponibles (built-in + custom)
 Get-DlpSensitiveInformationType | Select-Object Name, Publisher, Type | Sort-Object Type
 
-# Filtrer les SIT par catégorie (ex : Financial)
-Get-DlpSensitiveInformationType | Where-Object { $_.RecommendedConfidence -and $_.Name -match "Credit|Bank|Financial" } | Select-Object Name, Type
+# Filtrer les SIT custom uniquement (créés par l'admin)
+Get-DlpSensitiveInformationType | Where-Object { $_.Publisher -ne "Microsoft Corporation" } | Select-Object Name, Publisher, Type
 
 # Afficher le détail complet d'un SIT spécifique
 Get-DlpSensitiveInformationType -Identity "Credit Card Number" | Format-List
 
-# Lister uniquement les SIT custom (créés par l'admin)
-Get-DlpSensitiveInformationType | Where-Object { $_.Publisher -ne "Microsoft Corporation" } | Select-Object Name, Publisher, Type
+# Lister les rule packages custom
+Get-DlpSensitiveInformationTypeRulePackage | Where-Object { $_.Name -ne "Microsoft Rule Package" } | Select-Object Name, RuleCollectionName
 
-# Supprimer un SIT custom (récupérer le Name via Get-DlpSensitiveInformationType)
+# Supprimer un SIT custom
 Remove-DlpSensitiveInformationType -Identity "Nom-du-SIT-custom"
 
-# Lister les règles associées à un SIT custom
-Get-DlpSensitiveInformationTypeRulePackage | Select-Object Name, RuleCollectionName
+# Supprimer un rule package custom complet
+Remove-DlpSensitiveInformationTypeRulePackage -Identity "Nom-du-package"
 ```
 
 </details>
