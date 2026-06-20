@@ -71,62 +71,67 @@ Get-PSSession | Remove-PSSession
 ---
 
 ### 02_Sensitivity_Labels
-* [Exo 2a : Création d'un label parent](./02_Sensitivity_Labels/exo2a-create-parent-label.ps1)
-  * Objectif : Créer un label de sensibilité parent `Confidentiel` avec marquage visuel uniquement — watermark, header, footer. Pas de chiffrement à ce niveau.
+
+> **Prérequis manuel :** Sur le schéma moderne de labels Purview (actif par défaut sur
+> tout tenant créé après le 01/10/2025), la création d'un **label group** n'est possible
+> que via le portail Purview — aucune cmdlet PowerShell équivalente n'existe à ce jour
+> (vérifié via `Get-Command "*Label*"` sur les modules ExchangeOnlineManagement et
+> Microsoft.Graph.Security). Le label group "NSR2 - Confidentiel" doit donc être créé
+> manuellement avant d'exécuter les scripts ci-dessous : *Purview portal > Information
+> Protection > Sensitivity labels > Create a label*, nom uniquement, aucune autre config
+> (les label groups ne supportent que nom/description/couleur/priorité).
+
+* [Exo 2a : Récupération du label group créé via GUI](./02_Sensitivity_Labels/exo2a-get-label-group.ps1)
+  * Objectif : Documenter la limitation API, récupérer le label group "NSR2 - Confidentiel" et son Guid pour les exos suivants.
 * [Exo 2b : Création d'un sublabel avec chiffrement admin-defined](./02_Sensitivity_Labels/exo2b-create-sublabel-encryption.ps1)
-  * Objectif : Créer un sublabel `Confidentiel - Interne` avec chiffrement — permissions définies par l'admin, co-auteurs désignés parmi les utilisateurs du tenant.
+  * Objectif : Créer le sublabel `NSR2 - Interne` sous le label group, avec chiffrement — permissions définies par l'admin (Co-Owner, Co-Author).
   * Licence requise : Microsoft Purview Information Protection (inclus E5).
 * [Exo 2c : Création d'un sublabel Do Not Forward](./02_Sensitivity_Labels/exo2c-create-sublabel-dnf.ps1)
-  * Objectif : Créer un sublabel `Confidentiel - Externe` avec chiffrement Do Not Forward — protection des emails envoyés hors du tenant.
+  * Objectif : Créer le sublabel `NSR2 - Externe` avec chiffrement Do Not Forward — protection des emails envoyés hors du tenant.
   * Licence requise : Microsoft Purview Information Protection (inclus E5).
 * [Exo 2d : Publication des labels via une Label Policy](./02_Sensitivity_Labels/exo2d-publish-label-policy.ps1)
-  * Objectif : Publier les labels créés vers un groupe de test via une Label Policy — rendre les labels disponibles dans les apps Office des utilisateurs ciblés.
+  * Objectif : Publier le label group et ses sublabels vers un groupe de test via une Label Policy.
   * Licence requise : Microsoft Purview Information Protection (inclus E5).
 * [Exo 2e : Politique d'auto-labeling côté service](./02_Sensitivity_Labels/exo2e-create-autolabel-policy.ps1)
-  * Objectif : Créer une politique d'auto-labeling sur Exchange — détection automatique du SIT custom créé en 1b et application du label `Confidentiel - Interne` sans intervention utilisateur.
+  * Objectif : Créer une politique d'auto-labeling sur Exchange — détection automatique du SIT custom créé en 1b et application du label `NSR2 - Interne` sans intervention utilisateur.
   * Licence requise : Microsoft Purview Information Protection (inclus E5).
 * [Exo 2f : Audit des labels et policies](./02_Sensitivity_Labels/exo2f-audit-labels.ps1)
   * Objectif : Lister les labels, sublabels, policies de publication et policies d'auto-labeling — état complet de la configuration Information Protection du tenant.
 
-> **Note technique :** Les labels de sensibilité peuvent prendre jusqu'à 24h pour se propager
-> dans les apps Office des utilisateurs après publication. Sur un tenant dev, ce délai est
-> souvent réduit mais reste variable. Les tester via le portail Purview ou via les cmdlets
-> d'audit est instantané — l'attente concerne uniquement la disponibilité côté client Office.
+> **Note technique :** Le marquage visuel (watermark, header, footer) qu'on aurait
+> appliqué à un label parent dans l'ancien schéma se configure désormais au niveau
+> sublabel, pas au niveau label group — les label groups sont de purs conteneurs
+> organisationnels sans paramètres de protection ni de contenu.
 
 <details>
 <summary>Commandes utiles en une ligne — Sensitivity Labels</summary>
 
 ```powershell
-# Lister tous les labels de sensibilité
-Get-Label | Select-Object Name, DisplayName, Priority, ContentType, ParentId | Sort-Object Priority
+# Lister tous les labels (groups + sublabels)
+Get-Label | Select-Object Name, DisplayName, ParentId | Sort-Object ParentId
 
-# Lister uniquement les labels parents (pas de ParentId)
-Get-Label | Where-Object { -not $_.ParentId } | Select-Object Name, DisplayName, Priority
+# Lister uniquement les label groups (pas de ParentId = soit group, soit label simple)
+Get-Label | Where-Object { -not $_.ParentId } | Select-Object Name, DisplayName
 
-# Lister les sublabels d'un label parent (récupérer le ParentId via Get-Label)
-Get-Label | Where-Object { $_.ParentId -eq "id-du-parent" } | Select-Object Name, DisplayName
+# Lister les sublabels d'un label group (récupérer le Guid via Get-Label)
+Get-Label | Where-Object { $_.ParentId -eq "guid-du-group" } | Select-Object Name, DisplayName
 
-# Afficher le détail complet d'un label
-Get-Label -Identity "Nom-du-label" | Format-List
+# Afficher le détail complet d'un label avec ses propriétés de marquage/chiffrement
+Get-Label -Identity "Nom-du-label" -IncludeDetailedLabelActions | Format-List
 
-# Supprimer un label (supprimer les sublabels d'abord)
-Remove-Label -Identity "Nom-du-label"
+# Supprimer un sublabel (supprimer les sublabels avant le label group parent)
+Remove-Label -Identity "Nom-du-sublabel"
 
 # Lister toutes les Label Policies
 Get-LabelPolicy | Select-Object Name, Labels, ExchangeLocation
 
-# Supprimer une Label Policy
-Remove-LabelPolicy -Identity "Nom-de-la-policy"
-
 # Lister toutes les politiques d'auto-labeling
 Get-AutoSensitivityLabelPolicy | Select-Object Name, Mode, AutoLabelingWorkload
 
-# Supprimer une politique d'auto-labeling
-Remove-AutoSensitivityLabelPolicy -Identity "Nom-de-la-policy"
+# Fermer proprement toutes les sessions PowerShell
+Get-PSSession | Remove-PSSession
 ```
 
 </details>
-
----
 
 ---
