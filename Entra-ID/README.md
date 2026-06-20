@@ -92,6 +92,9 @@ Remove-MgDirectoryAdministrativeUnit -AdministrativeUnitId "id-de-lau"
 * [Exo 3b : Security Group dynamique](./03_Group_Management/exo3b-dynamic-security-group.ps1)
   * Objectif : Création d'un Security Group dynamique avec règle de membership automatique basée sur l'attribut département.
   * Licence requise : Entra ID P1/P2.
+* [Exo 3c : Groupe M365 (Unified Group)](./03_Group_Management/exo3c-create-m365-group.ps1)
+  * Objectif : Création d'un groupe M365 avec mailbox partagée — utilisé comme cible de Label Policy dans Purview 2d.
+  * Note : `-BodyParameter` obligatoire sur `New-MgGroup` — les paramètres directs `-MailEnabled` et `-SecurityEnabled` lèvent une erreur de type sur les versions récentes du module Graph.
 
 <details>
 <summary>Commandes utiles en une ligne — Group Management</summary>
@@ -100,8 +103,17 @@ Remove-MgDirectoryAdministrativeUnit -AdministrativeUnitId "id-de-lau"
 # Lister tous les groupes
 Get-MgGroup -All | Select-Object Id, DisplayName, SecurityEnabled, GroupTypes
 
+# Filtrer les groupes M365 uniquement (Unified)
+Get-MgGroup -All | Where-Object { $_.GroupTypes -contains "Unified" } | Select-Object Id, DisplayName, Mail
+
+# Filtrer les Security Groups uniquement
+Get-MgGroup -All | Where-Object { $_.SecurityEnabled -eq $true -and $_.GroupTypes -notcontains "Unified" } | Select-Object Id, DisplayName
+
 # Lister les membres d'un groupe (récupérer l'ID via Get-MgGroup)
 Get-MgGroupMember -GroupId "id-du-groupe" | Select-Object Id
+
+# Résoudre les membres d'un groupe avec leur UPN
+Get-MgGroupMember -GroupId "id-du-groupe" | ForEach-Object { Get-MgUser -UserId $_.Id | Select-Object DisplayName, UserPrincipalName }
 
 # Lister les owners d'un groupe
 Get-MgGroupOwner -GroupId "id-du-groupe" | Select-Object Id
