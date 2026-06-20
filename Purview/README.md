@@ -72,18 +72,18 @@ Get-PSSession | Remove-PSSession
 
 ### 02_Sensitivity_Labels
 * [Exo 2a : Création d'un label group et de son premier sublabel](./02_Sensitivity_Labels/exo2a-create-label-group.ps1)
-  * Objectif : Créer le label group `NSR2 - Confidentiel` et son sublabel `NSR2 - Interne` — démonstration que la création de label groups, contrairement à ce que documente Microsoft Learn, est intégralement scriptable via `-AdvancedSettings`.
+  * Objectif : Créer le label group `NormandySR2 - Confidentiel` et son sublabel `NormandySR2 - Interne` — démonstration que la création de label groups, contrairement à ce que documente Microsoft Learn, est intégralement scriptable via `-AdvancedSettings`.
 * [Exo 2b : Chiffrement admin-defined sur un sublabel](./02_Sensitivity_Labels/exo2b-sublabel-encryption.ps1)
-  * Objectif : Ajouter le chiffrement RMS sur `NSR2 - Interne` — permissions définies par l'admin (Co-Owner, Co-Author).
+  * Objectif : Ajouter le chiffrement RMS sur `NormandySR2 - Interne` — permissions définies par l'admin (Co-Owner, Co-Author).
   * Licence requise : Microsoft Purview Information Protection (inclus E5).
 * [Exo 2c : Création d'un sublabel Do Not Forward](./02_Sensitivity_Labels/exo2c-create-sublabel-dnf.ps1)
-  * Objectif : Créer le sublabel `NSR2 - Externe` avec chiffrement Do Not Forward — protection des emails envoyés hors du tenant.
+  * Objectif : Créer le sublabel `NormandySR2 - Externe` avec chiffrement Do Not Forward — protection des emails envoyés hors du tenant.
   * Licence requise : Microsoft Purview Information Protection (inclus E5).
 * [Exo 2d : Publication des labels via une Label Policy](./02_Sensitivity_Labels/exo2d-publish-label-policy.ps1)
   * Objectif : Publier le label group et ses sublabels vers un groupe de test via une Label Policy.
   * Licence requise : Microsoft Purview Information Protection (inclus E5).
 * [Exo 2e : Politique d'auto-labeling côté service](./02_Sensitivity_Labels/exo2e-create-autolabel-policy.ps1)
-  * Objectif : Créer une politique d'auto-labeling sur Exchange — détection automatique du SIT custom créé en 1b et application du label `NSR2 - Interne` sans intervention utilisateur.
+  * Objectif : Créer une politique d'auto-labeling sur Exchange — détection automatique du SIT custom créé en 1b et application du label `NormandySR2 - Interne` sans intervention utilisateur.
   * Licence requise : Microsoft Purview Information Protection (inclus E5).
 * [Exo 2f : Audit des labels et policies](./02_Sensitivity_Labels/exo2f-audit-labels.ps1)
   * Objectif : Lister les labels, sublabels, policies de publication et policies d'auto-labeling — état complet de la configuration Information Protection du tenant.
