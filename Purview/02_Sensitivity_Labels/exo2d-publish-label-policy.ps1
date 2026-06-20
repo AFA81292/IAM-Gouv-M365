@@ -1,30 +1,25 @@
 # ========================================================================================
 # Exercice 2d : Sensitivity Labels — Publication via une Label Policy
 # ========================================================================================
-# Concept : Un label créé en 2a/2b/2c n'est pas encore visible par les utilisateurs.
-# Pour qu'il apparaisse dans Word, Outlook, Teams, etc., il faut le "publier" via
-# une Label Policy.
+# Un label créé en 2a/2b/2c n'est pas encore visible par les utilisateurs. Pour qu'il
+# apparaisse dans Word, Outlook, Teams, etc., il faut le "publier" via une Label
+# Policy — le lien entre les labels et les utilisateurs/groupes qui peuvent les voir.
 #
-# Label Policy : c'est le lien entre les labels et les utilisateurs/groupes.
-# Sans policy de publication, les labels existent dans Purview mais sont invisibles
-# côté client.
+# Une Label Policy définit quels labels sont publiés, à qui (users, groupes, ou tout
+# le tenant), et peut aussi fixer un label par défaut ou exiger une justification au
+# downgrade.
 #
-# Ce que fait une Label Policy :
-#   - Définit QUELS labels sont publiés
-#   - Définit À QUI ils sont publiés (users, groupes, ou tout le tenant)
-#   - Peut définir un label par défaut, obliger une justification au downgrade, etc.
+# Petite subtilité : un label group (parent) ne peut pas être publié directement —
+# New-LabelPolicy lève une erreur si on l'inclut dans -Labels. On publie seulement
+# les sublabels, et le groupe "NormandySR2 - Confidentiel" devient visible côté
+# client automatiquement dès qu'au moins un de ses sublabels l'est.
 #
-# IMPORTANT — label group vs sublabels :
-#   Un label group (parent) ne peut PAS être publié directement — New-LabelPolicy
-#   lève une erreur si on l'inclut dans -Labels. On publie uniquement les sublabels.
-#   Le label group "NormandySR2 - Confidentiel" devient visible automatiquement
-#   côté client dès qu'au moins un de ses sublabels est publié.
+# Ici on publie les 2 sublabels NormandySR2 vers le groupe GRP-Spectres (créé en
+# Entra 3c). En prod on viserait plutôt un groupe métier ou un département entier.
 #
-# Ici on publie les 2 sublabels NormandySR2 vers le groupe GRP-Spectres créé en Entra 3c.
-# Sur un tenant de prod on ciblerait un groupe métier ou un département entier.
-#
-# Prérequis : $env:MSAL_ENABLE_WAM = "0" dans la console avant de lancer le script
-#   (bypasse WAM qui interfère avec Connect-IPPSSession sur certaines configs Windows).
+# Avant de lancer ce script, penser à faire dans la console :
+#   $env:MSAL_ENABLE_WAM = "0"
+# (ça évite que WAM interfère avec Connect-IPPSSession sur certaines configs Windows)
 #
 # Module requis : ExchangeOnlineManagement
 # Connexion : Connect-IPPSSession
@@ -38,7 +33,7 @@ Connect-IPPSSession -UserPrincipalName GeptorAdmin@0n4mg.onmicrosoft.com -ShowBa
 # --- ÉTAPE 0 : Vérification des labels à publier ---
 Write-Host "0. Vérification des labels cibles..." -ForegroundColor Cyan
 
-# On publie uniquement les sublabels — pas le label group parent (cf. note en en-tête).
+# On publie uniquement les sublabels — pas le label group parent (cf. en-tête).
 $LabelsToPublish = @(
     "NormandySR2 - Interne",
     "NormandySR2 - Externe"
@@ -79,10 +74,10 @@ Write-Host "-> Nom retenu : '$PolicyName'`n" -ForegroundColor Green
 # --- ÉTAPE 2 : Création de la Label Policy ---
 Write-Host "2. Création de la Label Policy '$PolicyName'..." -ForegroundColor Cyan
 
-# -ModernGroupLocation : cible les groupes M365 (Unified Groups).
-#   Différent de -ExchangeLocation (mailboxes individuelles) ou
-#   -SharePointLocation (sites SPO). Un groupe M365 couvre Exchange + SPO + Teams
-#   pour ses membres — c'est le ciblage le plus cohérent pour une policy de test.
+# -ModernGroupLocation cible les groupes M365 (Unified Groups) — différent de
+# -ExchangeLocation (mailboxes individuelles) ou -SharePointLocation (sites SPO).
+# Un groupe M365 couvre Exchange + SPO + Teams pour ses membres, donc c'est le
+# ciblage le plus cohérent pour une policy de test.
 try {
     $NewPolicy = New-LabelPolicy `
         -Name                $PolicyName `
@@ -111,8 +106,8 @@ if (-not $CheckPolicy) {
 else {
     Write-Host "-> Label Policy confirmée :" -ForegroundColor Green
 
-    # DistributionStatus : "Pending" est normal juste après création.
-    # La distribution vers Exchange, SharePoint, Teams prend 1 à 24h.
+    # DistributionStatus "Pending" est normal juste après création — la distribution
+    # vers Exchange, SharePoint, Teams prend de 1 à 24h.
     [PSCustomObject]@{
         Nom                = $CheckPolicy.Name
         Guid               = $CheckPolicy.Guid
