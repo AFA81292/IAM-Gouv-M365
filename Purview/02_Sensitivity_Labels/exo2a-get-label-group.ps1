@@ -1,23 +1,25 @@
 # ========================================================================================
-# Exercice 2a : Sensitivity Labels — Création d'un label parent
+# Exercice 2a : Sensitivity Labels — Récupération d'un label group créé via GUI
 # ========================================================================================
-# Concept : Un label de sensibilité peut exister seul (label simple) ou comme parent
-# d'une hiérarchie de sublabels (ex: Confidentiel > Interne / Externe). Un label parent
-# n'a pas forcément de chiffrement — il peut servir de regroupement visuel/organisationnel,
-# le chiffrement étant alors appliqué uniquement sur les sublabels (voir 2b, 2c).
+# Concept : Sur le schéma moderne de labels Purview (actif par défaut sur tout tenant
+# créé après le 01/10/2025), la création d'un LABEL GROUP n'est PAS possible via
+# PowerShell — confirmé par l'absence de toute cmdlet *LabelGroup* dans
+# ExchangeOnlineManagement et Microsoft.Graph.Security (vérifié via Get-Command).
+# Cette opération est exclusivement disponible via le portail Purview
+# (Information Protection > Sensitivity labels > Create a label).
 #
-# Ici on crée "Confidentiel" comme label parent SANS chiffrement — uniquement du
-# marquage visuel (watermark, header, footer). Le chiffrement viendra sur les sublabels.
+# Le label group "NSR2 - Confidentiel" a donc été créé manuellement via le portail Purview,
+# avec uniquement nom/description — les label groups ne supportent que nom, description,
+# couleur et priorité, aucun marquage ni chiffrement (ces réglages vivent au niveau sublabel).
 #
-# Pourquoi séparer marquage et chiffrement à ce niveau :
-#   - Le marquage visuel a un coût d'usage quasi nul (juste informatif pour l'utilisateur)
-#   - Le chiffrement a un coût réel (gestion des droits, compatibilité, support)
-#   - Bonne pratique de gouvernance : forcer la décision de chiffrement au niveau sublabel,
-#     pas au niveau parent — évite le chiffrement "par défaut" non réfléchi
+# Ce script récupère ce label group par son nom et stocke son Guid en variable,
+# réutilisable comme -ParentId pour créer des sublabels (voir 2b, 2c).
 #
 # Cas d'usage réel :
-#   - Premier label d'une hiérarchie de classification d'entreprise
-#   - Démontrer la compréhension de la distinction marquage vs protection
+#   - Démontrer la compréhension d'une limitation API actuelle et savoir documenter
+#     un contournement légitime (étape manuelle + automatisation de ce qui suit)
+#   - Pattern réutilisable : "récupérer un objet existant, stocker son identifiant,
+#     l'utiliser comme référence dans les opérations suivantes"
 #
 # Module requis : ExchangeOnlineManagement
 # Connexion : Connect-IPPSSession
@@ -27,95 +29,32 @@
 Get-PSSession | Remove-PSSession
 Connect-IPPSSession -UserPrincipalName GeptorAdmin@0n4mg.onmicrosoft.com -ShowBanner:$false
 
-# --- ÉTAPE 1 : Définition des variables ---
-Write-Host "1. Définition du label parent..." -ForegroundColor Cyan
+# --- ÉTAPE 1 : Récupération du label group ---
+# Le label group a été créé manuellement via le portail Purview (étape obligatoire,
+# aucune cmdlet PowerShell équivalente n'existe à ce jour).
+Write-Host "1. Récupération du label group 'NSR2 - Confidentiel'..." -ForegroundColor Cyan
 
-$LabelName        = "Confidentiel"
-$LabelDisplayName = "Confidentiel"
-$LabelComment     = "Label parent — marquage visuel uniquement, sans chiffrement. Cerberus Corp IAM Lab."
+$ParentGroup = Get-Label -Identity "NSR2 - Confidentiel" -ErrorAction Stop
 
-Write-Host "-> Nom : $LabelName" -ForegroundColor Green
+Write-Host "-> Label group trouvé." -ForegroundColor Green
+Write-Host "-> Nom  : $($ParentGroup.DisplayName)" -ForegroundColor Green
+Write-Host "-> Guid : $($ParentGroup.Guid)`n" -ForegroundColor Green
 
-# --- ÉTAPE 2 : Création du label ---
-# New-Label crée le label dans Purview. Sans -ParentId, c'est un label racine.
-# -Tooltip : texte affiché au survol dans les apps Office
-# -Comment : visible uniquement côté admin, pas par les utilisateurs
-Write-Host "`n2. Création du label dans Purview..." -ForegroundColor Cyan
+# --- ÉTAPE 2 : Vérification — aucun sublabel pour l'instant ---
+Write-Host "2. Sublabels existants sous ce groupe..." -ForegroundColor Cyan
 
-try {
-    $NewLabel = New-Label `
-        -Name $LabelName `
-        -DisplayName $LabelDisplayName `
-        -Tooltip "Document confidentiel — usage interne Cerberus Corp" `
-        -Comment $LabelComment `
-        -ErrorAction Stop
+$ExistingSublabels = Get-Label | Where-Object { $_.ParentId -eq $ParentGroup.Guid }
 
-    Write-Host "-> Label créé. Id : $($NewLabel.Guid)" -ForegroundColor Green
-}
-catch {
-    Write-Host "-> Échec création label : $_" -ForegroundColor Red
-    return
-}
-
-# --- ÉTAPE 3 : Configuration du marquage visuel ---
-# Set-Label applique le marquage après création — séparé volontairement de New-Label
-# pour rester lisible (New-Label avec tous les paramètres de marquage serait illisible).
-#
-# ApplyContentMarkingFooterEnabled / HeaderEnabled / WatermarkingEnabled :
-#   Chacun est indépendant — on peut activer un seul des trois ou les trois ensemble.
-# FontSize, FontColor : en hexadécimal, cohérence visuelle avec une charte d'entreprise
-Write-Host "3. Configuration du marquage visuel..." -ForegroundColor Cyan
-
-try {
-    Set-Label -Identity $LabelName `
-        -ApplyContentMarkingFooterEnabled $true `
-        -ApplyContentMarkingFooterText "CONFIDENTIEL - Cerberus Corp" `
-        -ApplyContentMarkingFooterFontSize 10 `
-        -ApplyContentMarkingFooterFontColor "#C00000" `
-        -ApplyContentMarkingHeaderEnabled $true `
-        -ApplyContentMarkingHeaderText "CONFIDENTIEL" `
-        -ApplyContentMarkingHeaderFontSize 12 `
-        -ApplyContentMarkingHeaderFontColor "#C00000" `
-        -ApplyWatermarkingEnabled $true `
-        -ApplyWatermarkingText "CONFIDENTIEL" `
-        -ApplyWatermarkingFontSize 100 `
-        -ErrorAction Stop
-
-    Write-Host "-> Marquage visuel appliqué." -ForegroundColor Green
-}
-catch {
-    Write-Host "-> Échec configuration marquage : $_" -ForegroundColor Red
-    return
-}
-
-# --- ÉTAPE 4 : Vérification ---
-# IMPORTANT : Get-Label simple ne retourne pas de manière fiable les propriétés
-# de marquage (Footer/Header/Watermark) même quand elles sont actives côté serveur.
-# -IncludeDetailedLabelActions force le retour complet de ces propriétés.
-# Sans ce paramètre, on observe un faux négatif (tout à False alors que c'est actif).
-Write-Host "`n4. Vérification (propagation ~30s)..." -ForegroundColor Cyan
-Start-Sleep -Seconds 30
-
-$CheckLabel = Get-Label -Identity $LabelName -IncludeDetailedLabelActions
-
-if ($CheckLabel) {
-    Write-Host "-> Label confirmé dans Purview :" -ForegroundColor Green
-    [PSCustomObject]@{
-        Nom            = $CheckLabel.DisplayName
-        Priority       = $CheckLabel.Priority
-        Footer         = [bool]$CheckLabel.ApplyContentMarkingFooterEnabled
-        Header         = [bool]$CheckLabel.ApplyContentMarkingHeaderEnabled
-        Watermark      = [bool]$CheckLabel.ApplyWatermarkingEnabled
-        EstParent      = -not [bool]$CheckLabel.ParentId
-    } | Format-List
+if ($ExistingSublabels) {
+    $ExistingSublabels | Select-Object DisplayName | Format-Table -AutoSize
 } else {
-    Write-Host "-> Label pas encore visible — réplication en cours." -ForegroundColor Yellow
+    Write-Host "-> Aucun sublabel pour l'instant — normal, ils seront créés en 2b et 2c.`n" -ForegroundColor Yellow
 }
 
 # --- NETTOYAGE MÉMOIRE ---
-Remove-Variable LabelName, LabelDisplayName, LabelComment, NewLabel, CheckLabel `
-    -ErrorAction SilentlyContinue
+# ParentGroup.Guid sera récupéré à nouveau en 2b/2c via le même pattern Get-Label
+Remove-Variable ParentGroup, ExistingSublabels -ErrorAction SilentlyContinue
 
 # --- FERMETURE ---
 Get-PSSession | Remove-PSSession
-Write-Host "`nSession fermée. Mémoire locale nettoyée." -ForegroundColor Magenta
+Write-Host "`nSession fermée." -ForegroundColor Magenta
