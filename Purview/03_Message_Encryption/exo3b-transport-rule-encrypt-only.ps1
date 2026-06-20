@@ -1,167 +1,150 @@
 # ========================================================================================
-# Exercice 3b : Message Encryption — Transport Rule OME Encrypt-Only
+# Exercice 3b : Message Encryption — Transport Rule OME automatique (mot-clé CONFIDENTIEL)
 # ========================================================================================
-# Concept : Une Transport Rule (règle de flux de messagerie) est une règle côté serveur
-# Exchange qui s'applique automatiquement à tous les mails qui transitent, sans
-# intervention de l'utilisateur. C'est l'opposé d'un label de sensibilité appliqué
-# manuellement dans Outlook.
+# [... bloc de concept inchangé : FromScope vs SentToScope, cycle Audit -> Enforce ...]
 #
-# Ici on crée une règle qui détecte un mot-clé dans l'objet ou le corps du mail,
-# et applique automatiquement le template OME "Chiffrer" (Encrypt-Only).
-#
-# Encrypt-Only vs Do Not Forward :
-#   Encrypt-Only  : le contenu est chiffré en transit et au repos, mais le destinataire
-#                   peut transférer, copier, imprimer librement une fois déchiffré.
-#                   Utile pour la confidentialité en transit — on protège l'interception,
-#                   pas l'usage final.
-#
-#   Do Not Forward : le contenu est chiffré ET les droits sont restreints — le destinataire
-#                    ne peut pas transférer, copier ni imprimer. La protection suit le mail.
-#                    Exo 3c.
-#
-# ATTENTION — Noms des templates localisés :
-#   Sur un tenant configuré en français, les templates built-in s'appellent :
-#     "Chiffrer"          = Encrypt-Only en anglais
-#     "Ne pas transférer" = Do Not Forward en anglais
-#   Sur un tenant en anglais (prod internationale, tenant client) :
-#     "Encrypt-Only"
-#     "Do Not Forward"
-#   Le nom passé à -ApplyRightsProtectionTemplate DOIT correspondre exactement
-#   au nom retourné par Get-RMSTemplate sur CE tenant.
-#   Vérifier toujours avec : Get-RMSTemplate | Select-Object Name
-#   avant de créer une rule sur un tenant inconnu — sinon la rule est créée
-#   mais le chiffrement ne s'applique pas (erreur silencieuse).
-#
-# Ce que fait ce script :
-#   1. Vérifie que le template "Chiffrer" existe sur le tenant
-#   2. Crée la Transport Rule avec détection du mot-clé CONFIDENTIEL
-#   3. Vérifie la création et affiche l'état
-#
-# Module requis : ExchangeOnlineManagement
-# Connexion : Connect-ExchangeOnline
-# Licence requise : Microsoft Purview Message Encryption (inclus E3/E5)
+# Leçon apprise (2e échec) : le nom du template système dépend de la langue d'affichage
+# du tenant. Sur un tenant FR, les templates OME par défaut s'appellent "Chiffrer" et
+# "Ne pas transférer" — pas "Encrypt" / "Encrypt-Only". Le filtre ci-dessous couvre EN+FR
+# explicitement (limite assumée, pas de solution garantie locale-proof sans GUID connu).
+# Une variable d'override est fournie pour forcer le nom exact si l'heuristique échoue.
 # ========================================================================================
 
 # --- OUVERTURE ---
 Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue
 Connect-ExchangeOnline -UserPrincipalName GeptorAdmin@0n4mg.onmicrosoft.com -ShowBanner:$false
 
-# --- VARIABLES DU LAB ---
-# Le nom du template tel que retourné par Get-RMSTemplate sur CE tenant (FR).
-# Sur un tenant EN, remplacer par "Encrypt-Only".
-$TemplateName = "Chiffrer"
+# --- ÉTAPE 0 : Override manuel (optionnel) ---
+# Si renseigné, on saute toute la résolution automatique et on utilise ce nom tel quel.
+# Utile si l'heuristique EN/FR ne matche pas sur un autre tenant plus tard.
+$TemplateNameOverride = $null   # ex : "Chiffrer"
 
-# Le mot-clé déclencheur — détecté dans l'objet ET le corps du mail.
-# En prod on utilise souvent plusieurs mots-clés, ou un SIT, ou un label de sensibilité
-# comme condition. Ici on garde simple pour l'exercice.
-$Keyword      = "CONFIDENTIEL"
+# --- ÉTAPE 1 : Garde-fou — RMS doit être actif (prérequis validé en 3a) ---
+Write-Host "1. Vérification rapide du prérequis RMS..." -ForegroundColor Cyan
 
-$RuleName     = "OME-EncryptOnly-MotCle-Confidentiel"
-
-# --- ÉTAPE 1 : Vérification du template ---
-Write-Host "1. Vérification du template RMS '$TemplateName'..." -ForegroundColor Cyan
-
-$Template = Get-RMSTemplate | Where-Object { $_.Name -eq $TemplateName }
-
-if (-not $Template) {
-    Write-Host "-> ÉCHEC : template '$TemplateName' introuvable." -ForegroundColor Red
-    Write-Host "   Lister les templates disponibles : Get-RMSTemplate | Select-Object Name" -ForegroundColor Yellow
-    Write-Host "   Sur tenant EN, le nom est 'Encrypt-Only'." -ForegroundColor Yellow
+$IRMConfig = Get-IRMConfiguration
+if (-not $IRMConfig.AzureRMSLicensingEnabled) {
+    Write-Host "-> ARRÊT : RMS n'est pas actif sur le tenant (voir exo 3a)." -ForegroundColor Red
     Disconnect-ExchangeOnline -Confirm:$false
     return
 }
-Write-Host "-> OK : template '$TemplateName' trouvé (Guid : $($Template.Guid))`n" -ForegroundColor Green
+Write-Host "-> OK : RMS actif.`n" -ForegroundColor Green
 
-# --- ÉTAPE 2 : Vérification qu'une rule du même nom n'existe pas déjà ---
-Write-Host "2. Vérification du nom de la rule..." -ForegroundColor Cyan
+# --- ÉTAPE 2 : Résolution du template de chiffrement simple (EN + FR, ou override) ---
+Write-Host "2. Résolution du template RMS de chiffrement simple..." -ForegroundColor Cyan
 
-$ExistingRule = Get-TransportRule -Identity $RuleName -ErrorAction SilentlyContinue
-if ($ExistingRule) {
-    Write-Host "-> Une rule '$RuleName' existe déjà (State : $($ExistingRule.State))." -ForegroundColor Yellow
-    Write-Host "   Suppression de l'ancienne rule avant recréation..." -ForegroundColor Yellow
-    Remove-TransportRule -Identity $RuleName -Confirm:$false
-    Start-Sleep -Seconds 3
-    Write-Host "-> Ancienne rule supprimée.`n" -ForegroundColor Green
-} else {
-    Write-Host "-> Nom disponible.`n" -ForegroundColor Green
+if ($TemplateNameOverride) {
+    $Template = $TemplateNameOverride
+    Write-Host "-> Override manuel utilisé : '$Template'`n" -ForegroundColor Yellow
+}
+else {
+    $AllTemplates = Get-RMSTemplate
+
+    # Mots-clés "positifs" (chiffrement simple) et "négatifs" (Do Not Forward, à exclure)
+    # en anglais et en français. Documenté comme limite : tenant dans une 3e langue = échec.
+    $PositiveKeywords = "Encrypt|Chiffrer"
+    $NegativeKeywords = "Forward|transférer"
+
+    $EncryptTemplate = $AllTemplates | Where-Object {
+        $_.Name -match $PositiveKeywords -and $_.Name -notmatch $NegativeKeywords
+    } | Select-Object -First 1
+
+    if (-not $EncryptTemplate) {
+        Write-Host "-> ARRÊT : aucun template résolu automatiquement (EN/FR)." -ForegroundColor Red
+        Write-Host "   Templates disponibles sur ce tenant :" -ForegroundColor Yellow
+        $AllTemplates | Select-Object Name | Format-Table -AutoSize
+        Write-Host "   -> Renseigne `$TemplateNameOverride en haut du script avec le nom exact." -ForegroundColor Yellow
+        Disconnect-ExchangeOnline -Confirm:$false
+        return
+    }
+
+    $Template = $EncryptTemplate.Name
+    Write-Host "-> Template résolu automatiquement : '$Template'`n" -ForegroundColor Green
 }
 
-# --- ÉTAPE 3 : Création de la Transport Rule ---
-Write-Host "3. Création de la Transport Rule '$RuleName'..." -ForegroundColor Cyan
+# --- ÉTAPE 3 : Définition des variables de la règle ---
+$RuleName = "OME-N7-Confidentiel-Sortant"
+$Keyword  = "CONFIDENTIEL"
 
-# Paramètres de la rule — explication de chaque paramètre :
-#
-#   -Name : identifiant unique de la rule dans Exchange.
-#
-#   -SentToScope NotInOrganization : condition — s'applique uniquement aux mails
-#     sortants vers l'extérieur du tenant. "InOrganization" = interne seulement,
-#     "NotInOrganization" = externe seulement, pas de paramètre = tous les mails.
-#     Ici on chiffre les mails SORTANTS contenant CONFIDENTIEL — logique.
-#
-#   -SubjectOrBodyContainsWords : condition — détecte le mot-clé dans l'objet
-#     ou le corps du mail. Accepte un tableau de mots-clés (@("mot1","mot2")).
-#     Insensible à la casse par défaut.
-#
-#   -ApplyRightsProtectionTemplate : action — applique le template RMS spécifié.
-#     C'est cette action qui déclenche le chiffrement OME.
-#     Le nom doit correspondre EXACTEMENT à Get-RMSTemplate (cf. note en-tête).
-#
-#   -Priority : ordre d'évaluation des rules. 0 = évaluée en premier.
-#     En prod, les rules sont évaluées dans l'ordre de priorité et s'arrêtent
-#     à la première correspondance par défaut (sauf si StopRuleProcessing = $false).
-#
-#   -Comments : description affichée dans EAC — toujours renseigner en prod
-#     pour la traçabilité et la gestion des changements.
+Write-Host "3. Paramètres de la règle :" -ForegroundColor Cyan
+Write-Host "   Nom      : $RuleName"   -ForegroundColor Gray
+Write-Host "   Mot-clé  : $Keyword (sujet OU corps du message)" -ForegroundColor Gray
+Write-Host "   Template : $Template`n" -ForegroundColor Gray
+
+# --- ÉTAPE 4 : Création de la règle en mode Audit ---
+Write-Host "4. Création de la règle en mode AuditAndNotify (test)..." -ForegroundColor Cyan
+
+$RuleParams = @{
+    Name                           = $RuleName
+    Comments                       = "Exo 3b - Chiffre automatiquement les mails internes contenant CONFIDENTIEL. Cree par script, voir GitHub Purview/03_Message_Encryption."
+    FromScope                      = "InOrganization"
+    SubjectOrBodyContainsWords     = $Keyword
+    ApplyRightsProtectionTemplate  = $Template
+    Mode                           = "AuditAndNotify"
+}
+
 try {
-    $NewRule = New-TransportRule `
-        -Name                         $RuleName `
-        -SentToScope                  NotInOrganization `
-        -SubjectOrBodyContainsWords   $Keyword `
-        -ApplyRightsProtectionTemplate $TemplateName `
-        -Priority                     0 `
-        -Comments                     "OME Lab 3b — Chiffrement Encrypt-Only automatique sur mails sortants contenant '$Keyword'." `
-        -ErrorAction Stop
-
-    Write-Host "-> Rule créée. Guid : $($NewRule.Guid)`n" -ForegroundColor Green
+    New-TransportRule @RuleParams -ErrorAction Stop
+    Write-Host "-> Succès : règle créée en mode test (AuditAndNotify).`n" -ForegroundColor Green
 }
 catch {
-    Write-Host "-> Échec création : $_" -ForegroundColor Red
+    Write-Host "-> Échec de la création : $_`n" -ForegroundColor Red
     Disconnect-ExchangeOnline -Confirm:$false
     return
 }
 
-# --- ÉTAPE 4 : Vérification ---
-Write-Host "4. Vérification (attente 15s propagation)..." -ForegroundColor Cyan
-Start-Sleep -Seconds 15
+# --- ÉTAPE 5 : Vérification de la règle en mode test ---
+Write-Host "5. Vérification de la règle créée..." -ForegroundColor Cyan
+Start-Sleep -Seconds 2
 
-$CheckRule = Get-TransportRule -Identity $RuleName -ErrorAction SilentlyContinue
+Get-TransportRule -Identity $RuleName |
+    Select-Object Name, Mode, State, FromScope, SubjectOrBodyContainsWords |
+    Format-List
 
-if (-not $CheckRule) {
-    Write-Host "-> ATTENTION : rule introuvable après vérification." -ForegroundColor Yellow
-} else {
-    Write-Host "-> Rule confirmée :" -ForegroundColor Green
+# --- ÉTAPE 6 : Bascule en mode Enforce ---
+Write-Host "6. Bascule de la règle en mode Enforce..." -ForegroundColor Cyan
 
-    # State : "Enabled" = active immédiatement après création.
-    # Contrairement aux DLP policies qui démarrent en mode Test, les Transport Rules
-    # sont actives dès la création — pas de mode simulation natif.
-    # Pour tester sans impact : désactiver avec Disable-TransportRule après vérification.
-    [PSCustomObject]@{
-        Nom           = $CheckRule.Name
-        Etat          = $CheckRule.State
-        Priorite      = $CheckRule.Priority
-        Condition     = "Objet/Corps contient '$Keyword' + destinataire externe"
-        Action        = "Appliquer template RMS : $TemplateName"
-        Commentaire   = $CheckRule.Comments
-    } | Format-List
+try {
+    Set-TransportRule -Identity $RuleName -Mode Enforce -ErrorAction Stop
+    Write-Host "-> Succès : règle active en Enforce.`n" -ForegroundColor Green
+}
+catch {
+    Write-Host "-> Échec de la bascule : $_`n" -ForegroundColor Red
 }
 
-# --- NOTE IMPORTANTE ---
-Write-Host "-> INFO : La rule est active immédiatement." -ForegroundColor Yellow
-Write-Host "   Pour désactiver sans supprimer : Disable-TransportRule -Identity '$RuleName'" -ForegroundColor Yellow
+# --- ÉTAPE 7 : Vérification finale ---
+Write-Host "7. État final de la règle..." -ForegroundColor Cyan
+Start-Sleep -Seconds 2
+
+$FinalRule = Get-TransportRule -Identity $RuleName
+$FinalRule | Select-Object Name, Mode, State, Priority | Format-List
+
+if ($FinalRule.Mode -eq "Enforce" -and $FinalRule.State -eq "Enabled") {
+    Write-Host "-> OK : règle active et enforced.`n" -ForegroundColor Green
+} else {
+    Write-Host "-> ATTENTION : état inattendu — vérifier Mode/State ci-dessus.`n" -ForegroundColor Yellow
+}
+
+# --- RÉSUMÉ ---
+Write-Host "=== RÉSUMÉ ===" -ForegroundColor Magenta
+[PSCustomObject]@{
+    Nom      = $FinalRule.Name
+    Mode     = $FinalRule.Mode
+    Etat     = $FinalRule.State
+    Portee   = "FromScope: InOrganization"
+    MotCle   = $Keyword
+    Template = $Template
+} | Format-List
+
+# --- COMMENT TESTER MANUELLEMENT ---
+# Envoyer un message de Shepard@0n4mg.onmicrosoft.com vers Liara@0n4mg.onmicrosoft.com
+# avec "CONFIDENTIEL" dans le sujet ou le corps. Vérifier via le message trace (portail
+# Exchange > Mail flow > Message trace) que le message a été traité par la règle
+# "OME-N7-Confidentiel-Sortant" et marqué chiffré.
 
 # --- NETTOYAGE MÉMOIRE ---
-Remove-Variable TemplateName, Keyword, RuleName, Template, ExistingRule, NewRule, CheckRule `
-    -ErrorAction SilentlyContinue
+Remove-Variable IRMConfig, AllTemplates, EncryptTemplate, Template, TemplateNameOverride, `
+    RuleName, Keyword, RuleParams, FinalRule -ErrorAction SilentlyContinue
 
 # --- FERMETURE ---
 Disconnect-ExchangeOnline -Confirm:$false
