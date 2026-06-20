@@ -1,20 +1,20 @@
 # ========================================================================================
 # Exercice 2c : Sensitivity Labels — Sublabel Do Not Forward pour usage externe
 # ========================================================================================
-# Concept : Ce sublabel protège les emails envoyés hors du tenant.
-# Le destinataire peut lire et répondre, mais ne peut ni transférer, ni imprimer,
-# ni copier le contenu. Les pièces jointes Office héritent de la même protection.
+# Ce sublabel protège les emails envoyés hors du tenant : le destinataire peut lire
+# et répondre, mais ne peut ni transférer, ni imprimer, ni copier le contenu. Les
+# pièces jointes Office héritent de la même protection.
 #
-# POURQUOI PAS -EncryptionDoNotForward ?
-#   Ce paramètre existe dans la doc Microsoft mais son comportement est incohérent
-#   selon la version du module — il est ignoré silencieusement ou mal appliqué.
-#   La méthode fiable (celle qu'utilise le portail Purview en interne) : passer le
-#   droit spécial DONOTFORWARD dans -EncryptionRightsDefinitions.
+# On n'utilise pas -EncryptionDoNotForward : ce paramètre existe dans la doc
+# Microsoft mais son comportement est incohérent selon la version du module (ignoré
+# silencieusement, ou mal appliqué). La méthode fiable, celle que le portail Purview
+# utilise en interne, c'est de passer le droit spécial DONOTFORWARD directement dans
+# -EncryptionRightsDefinitions.
 #
-# POURQUOI LA CONCATENATION + ET PAS L'INTERPOLATION ${var}:DONOTFORWARD ?
-#   PowerShell interprète le ":" après "}" comme un séparateur de drive provider
-#   (ex : Env:, HKLM:, etc.) dans certains contextes d'interpolation. Résultat :
-#   crash silencieux sans message d'erreur. La concaténation avec + est sans ambiguïté.
+# Petit piège PowerShell au passage : dans la chaîne de droits, on concatène avec +
+# plutôt que d'interpoler ${var}:DONOTFORWARD. PowerShell peut interpréter le ":"
+# après "}" comme un séparateur de drive (Env:, HKLM:...) et planter sans message
+# d'erreur clair. La concaténation évite l'ambiguïté.
 #
 # Module requis : ExchangeOnlineManagement
 # Connexion : Connect-IPPSSession
@@ -38,10 +38,10 @@ Write-Host "Label group parent confirmé — Guid : $($ParentGroup.Guid)`n" -For
 # --- ÉTAPE 1 : Recherche d'un nom disponible (auto-incrément) ---
 Write-Host "1. Recherche d'un nom disponible..." -ForegroundColor Cyan
 
-# Sur un tenant de dev on reteste souvent le même script sans attendre que la
-# suppression précédente soit propagée (ça peut prendre 2 à 5 minutes côté backend
-# Purview même après un Remove-Label réussi). L'auto-incrément évite le blocage :
-# on cherche le premier nom libre parmi "NormandySR2 - Externe", "-v2", "-v3", etc.
+# Sur un tenant de dev, on reteste souvent le même script sans attendre que la
+# suppression précédente se propage côté backend (ça peut prendre quelques minutes
+# même après un Remove-Label réussi). L'auto-incrément évite le blocage : on cherche
+# le premier nom libre parmi "NormandySR2 - Externe", "-v2", "-v3", etc.
 $BaseName     = "NormandySR2 - Externe"
 $SubLabelName = $BaseName
 $Counter      = 2
@@ -57,15 +57,14 @@ Write-Host "-> Nom retenu : '$SubLabelName'`n" -ForegroundColor Green
 # --- ÉTAPE 2 : Construction de la chaîne de droits ---
 Write-Host "2. Construction des droits Do Not Forward..." -ForegroundColor Cyan
 
-# Ce GUID bizarre est une identité réservée Azure RMS — c'est la façon dont
-# Microsoft dit "n'importe quel utilisateur avec un compte Azure AD".
-# Il est identique sur tous les tenants, on ne l'invente pas.
+# Ce GUID est une identité réservée Azure RMS : c'est la façon dont Microsoft dit
+# "n'importe quel utilisateur avec un compte Azure AD". Il est identique sur tous
+# les tenants, on ne l'invente pas.
 $TenantDomain     = "0n4mg.onmicrosoft.com"
 $AllStaffIdentity = "AllStaff-7184AB3F-CCD1-46F3-8233-3E09E9CF0E66@" + $TenantDomain
 
-# DONOTFORWARD est le droit composite RMS pour Do Not Forward.
-# Il autorise VIEW, REPLY, REPLYALL — et bloque FORWARD, PRINT, EXTRACT, EDIT.
-# IMPORTANT : concaténation avec + obligatoire ici (voir note en en-tête du script).
+# DONOTFORWARD est le droit composite RMS : il autorise VIEW, REPLY, REPLYALL,
+# et bloque FORWARD, PRINT, EXTRACT, EDIT.
 $RightsDefinitionsString = $AllStaffIdentity + ":DONOTFORWARD"
 Write-Host "-> Chaîne droits : $RightsDefinitionsString`n" -ForegroundColor DarkGray
 
@@ -87,8 +86,7 @@ try {
         -ErrorAction Stop
 
     # OfflineAccessDays = 0 : Do Not Forward est pensé pour une lecture en ligne
-    # uniquement — pas d'accès hors connexion, cohérent avec l'objectif de contrôle.
-
+    # uniquement, donc pas d'accès hors connexion — cohérent avec l'objectif.
     Write-Host "-> Sublabel créé. Guid : $($SubLabelExterne.Guid)`n" -ForegroundColor Green
 }
 catch {
@@ -112,9 +110,9 @@ elseif (-not $CheckLabel.EncryptionEnabled) {
 else {
     Write-Host "-> Sublabel confirmé :" -ForegroundColor Green
 
-    # Note : la propriété EncryptionDoNotForward reste vide sur certaines versions
-    # du module — c'est normal. La vraie preuve est dans DroitsDefinis ci-dessous,
-    # qui doit afficher "AllStaff-...@0n4mg.onmicrosoft.com:DONOTFORWARD".
+    # La propriété EncryptionDoNotForward reste parfois vide selon la version du
+    # module — normal. La vraie preuve est dans DroitsDefinis ci-dessous, qui doit
+    # afficher "AllStaff-...@0n4mg.onmicrosoft.com:DONOTFORWARD".
     [PSCustomObject]@{
         Nom               = $CheckLabel.DisplayName
         ChiffrementActif  = [bool]$CheckLabel.EncryptionEnabled
