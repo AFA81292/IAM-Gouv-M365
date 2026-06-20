@@ -83,7 +83,12 @@ $CheckGroup = Get-Label -Identity "NSR2 - Confidentiel"
 Write-Host "-> Settings du label group :" -ForegroundColor Green
 $CheckGroup.Settings | Format-Table -AutoSize
 
-if ($CheckGroup.Settings["isparent"] -eq "True") {
+# Recherche dans Settings via Where-Object plutôt qu'une indexation directe —
+# Settings n'est pas une hashtable .NET classique, l'indexation ["clé"] échoue
+# silencieusement et retourne $null même quand la valeur existe réellement.
+$IsParentEntry = $CheckGroup.Settings | Where-Object { $_.Name -eq "isparent" }
+
+if ($IsParentEntry.Value -eq "True") {
     Write-Host "-> Confirmé : isparent=True — le label group est fonctionnel.`n" -ForegroundColor Green
 } else {
     Write-Host "-> isparent toujours False — réplication possiblement en cours.`n" -ForegroundColor Yellow
