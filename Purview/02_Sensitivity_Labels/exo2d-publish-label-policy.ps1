@@ -14,24 +14,32 @@
 #   - Définit À QUI ils sont publiés (users, groupes, ou tout le tenant)
 #   - Peut définir un label par défaut, obliger une justification au downgrade, etc.
 #
-# Ici on publie les 3 labels NormandySR2 vers le groupe GRP-Spectres créé en Entra 3c.
+# IMPORTANT — label group vs sublabels :
+#   Un label group (parent) ne peut PAS être publié directement — New-LabelPolicy
+#   lève une erreur si on l'inclut dans -Labels. On publie uniquement les sublabels.
+#   Le label group "NormandySR2 - Confidentiel" devient visible automatiquement
+#   côté client dès qu'au moins un de ses sublabels est publié.
+#
+# Ici on publie les 2 sublabels NormandySR2 vers le groupe GRP-Spectres créé en Entra 3c.
 # Sur un tenant de prod on ciblerait un groupe métier ou un département entier.
+#
+# Prérequis : $env:MSAL_ENABLE_WAM = "0" dans la console avant de lancer le script
+#   (bypasse WAM qui interfère avec Connect-IPPSSession sur certaines configs Windows).
 #
 # Module requis : ExchangeOnlineManagement
 # Connexion : Connect-IPPSSession
 # ========================================================================================
 
 # --- OUVERTURE ---
+$env:MSAL_ENABLE_WAM = "0"
 Get-PSSession | Remove-PSSession
 Connect-IPPSSession -UserPrincipalName GeptorAdmin@0n4mg.onmicrosoft.com -ShowBanner:$false
 
 # --- ÉTAPE 0 : Vérification des labels à publier ---
 Write-Host "0. Vérification des labels cibles..." -ForegroundColor Cyan
 
-# On vérifie que les 3 labels créés en 2a/2b/2c sont bien présents avant de publier.
-# New-LabelPolicy échoue si un label référencé n'existe pas.
+# On publie uniquement les sublabels — pas le label group parent (cf. note en en-tête).
 $LabelsToPublish = @(
-    "NormandySR2 - Confidentiel",
     "NormandySR2 - Interne",
     "NormandySR2 - Externe"
 )
@@ -57,7 +65,6 @@ Write-Host "-> Tous les labels présents — poursuite du script.`n" -Foreground
 # --- ÉTAPE 1 : Recherche d'un nom disponible (auto-incrément) ---
 Write-Host "1. Recherche d'un nom disponible pour la policy..." -ForegroundColor Cyan
 
-# Même logique que 2c : on évite le blocage si la policy existe déjà d'un run précédent.
 $BasePolicyName = "LP-NormandySR2-Spectres"
 $PolicyName     = $BasePolicyName
 $Counter        = 2
@@ -72,20 +79,16 @@ Write-Host "-> Nom retenu : '$PolicyName'`n" -ForegroundColor Green
 # --- ÉTAPE 2 : Création de la Label Policy ---
 Write-Host "2. Création de la Label Policy '$PolicyName'..." -ForegroundColor Cyan
 
-# -Labels : liste des labels à publier. On publie le groupe parent ET ses sublabels —
-#   publier les sublabels sans le parent n'aurait pas de sens côté UX utilisateur.
-#
-# -ModernGroupLocation : cible les groupes M365 (Unified Groups). C'est le paramètre
-#   correct pour un groupe M365 — différent de -ExchangeLocation (mailboxes) ou
-#   -SharePointLocation (sites SPO).
-#
-# L'adresse email du groupe est la PrimarySmtpAddress récupérée en Entra 3c.
+# -ModernGroupLocation : cible les groupes M365 (Unified Groups).
+#   Différent de -ExchangeLocation (mailboxes individuelles) ou
+#   -SharePointLocation (sites SPO). Un groupe M365 couvre Exchange + SPO + Teams
+#   pour ses membres — c'est le ciblage le plus cohérent pour une policy de test.
 try {
     $NewPolicy = New-LabelPolicy `
-        -Name                  $PolicyName `
-        -Labels                $LabelsToPublish `
-        -ModernGroupLocation   "GRP-Spectres@0n4mg.onmicrosoft.com" `
-        -Comment               "Publication des labels NormandySR2 vers le groupe de test GRP-Spectres." `
+        -Name                $PolicyName `
+        -Labels              $LabelsToPublish `
+        -ModernGroupLocation "GRP-Spectres@0n4mg.onmicrosoft.com" `
+        -Comment             "Publication des sublabels NormandySR2 vers le groupe de test GRP-Spectres." `
         -ErrorAction Stop
 
     Write-Host "-> Label Policy créée. Guid : $($NewPolicy.Guid)`n" -ForegroundColor Green
@@ -108,14 +111,13 @@ if (-not $CheckPolicy) {
 else {
     Write-Host "-> Label Policy confirmée :" -ForegroundColor Green
 
-    # -DistributionStatus indique si la policy a été distribuée aux services M365.
-    # "Pending" est normal juste après création — la distribution prend 1 à 24h
-    # selon les services (Exchange, SharePoint, Teams, etc.).
+    # DistributionStatus : "Pending" est normal juste après création.
+    # La distribution vers Exchange, SharePoint, Teams prend 1 à 24h.
     [PSCustomObject]@{
         Nom                = $CheckPolicy.Name
         Guid               = $CheckPolicy.Guid
         Labels             = ($CheckPolicy.Labels -join ", ")
-        GroupsCibles       = ($CheckPolicy.ModernGroupLocation -join ", ")
+        GroupesCibles      = ($CheckPolicy.ModernGroupLocation -join ", ")
         StatutDistribution = $CheckPolicy.DistributionStatus
     } | Format-List
 }
