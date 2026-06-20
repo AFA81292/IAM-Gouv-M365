@@ -13,16 +13,6 @@
 #   1. New-Label -AdvancedSettings @{islabelgroup="True"} crée le conteneur
 #   2. New-Label -ParentId <Guid-du-groupe> crée un sublabel rattaché
 #   3. Le service met alors isparent=True sur le groupe, en retour, sans action admin
-#   Tenté et rejeté : passer isparent="True" directement à la création ou via Set-Label
-#   après coup — toujours resté à False. Ce n'est pas un paramètre, c'est un état dérivé.
-#
-# Pourquoi ce comportement a du sens côté Microsoft :
-#   Un label group "vide" sans aucun sublabel ne sert à rien dans l'UI Office —
-#   le système ne le considère donc "parent" qu'une fois qu'il a réellement un enfant.
-#
-# Ce script crée le label group "NSR2 - Confidentiel" PUIS son premier sublabel
-# "NSR2 - Interne" (sans chiffrement à ce stade — le chiffrement arrive en 2b
-# sur ce même sublabel via Set-Label, pour rester dans l'esprit 1 action = 1 étape).
 #
 # Module requis : ExchangeOnlineManagement
 # Connexion : Connect-IPPSSession
@@ -33,8 +23,6 @@ Get-PSSession | Remove-PSSession
 Connect-IPPSSession -UserPrincipalName GeptorAdmin@0n4mg.onmicrosoft.com -ShowBanner:$false
 
 # --- ÉTAPE 1 : Création du label group ---
-# -AdvancedSettings @{islabelgroup="True"} est la seule clé nécessaire à la création.
-# isparent se positionnera tout seul à l'étape 2.
 Write-Host "1. Création du label group 'NSR2 - Confidentiel'..." -ForegroundColor Cyan
 
 try {
@@ -53,9 +41,17 @@ catch {
     return
 }
 
+# --- ÉTAPE 1bis : Vérification immédiate de la création du groupe ---
+Start-Sleep -Seconds 15
+$VerifyGroup = Get-Label -Identity "NSR2 - Confidentiel" -ErrorAction SilentlyContinue
+
+if (-not $VerifyGroup) {
+    Write-Host "-> ÉCHEC : le label group n'est pas retrouvable après création. Arrêt du script." -ForegroundColor Red
+    return
+}
+Write-Host "-> Label group confirmé présent dans Purview.`n" -ForegroundColor Green
+
 # --- ÉTAPE 2 : Création du premier sublabel rattaché ---
-# -ParentId utilise le Guid récupéré à l'étape 1. C'est cette opération qui va
-# automatiquement faire passer isparent=True sur le label group parent.
 Write-Host "2. Création du premier sublabel 'NSR2 - Interne'..." -ForegroundColor Cyan
 
 try {
@@ -74,28 +70,42 @@ catch {
     return
 }
 
-# --- ÉTAPE 3 : Vérification — isparent doit être passé à True ---
-Write-Host "3. Vérification (propagation ~20s)..." -ForegroundColor Cyan
+# --- ÉTAPE 3 : Vérification finale — sublabel ET isparent sur le groupe ---
+Write-Host "3. Vérification finale (propagation ~20s)..." -ForegroundColor Cyan
 Start-Sleep -Seconds 20
 
+$VerifySubLabel = Get-Label -Identity "NSR2 - Interne" -ErrorAction SilentlyContinue
+
+if (-not $VerifySubLabel) {
+    Write-Host "-> ÉCHEC : le sublabel 'NSR2 - Interne' n'est pas retrouvable après création." -ForegroundColor Red
+    Write-Host "-> Vérifier manuellement dans le portail Purview avant de continuer." -ForegroundColor Red
+    return
+}
+Write-Host "-> Sublabel confirmé présent dans Purview." -ForegroundColor Green
+
 $CheckGroup = Get-Label -Identity "NSR2 - Confidentiel"
-
-Write-Host "-> Settings du label group :" -ForegroundColor Green
-$CheckGroup.Settings | Format-Table -AutoSize
-
-# Recherche dans Settings via Where-Object plutôt qu'une indexation directe —
-# Settings n'est pas une hashtable .NET classique, l'indexation ["clé"] échoue
-# silencieusement et retourne $null même quand la valeur existe réellement.
 $IsParentEntry = $CheckGroup.Settings | Where-Object { $_.Name -eq "isparent" }
 
 if ($IsParentEntry.Value -eq "True") {
-    Write-Host "-> Confirmé : isparent=True — le label group est fonctionnel.`n" -ForegroundColor Green
+    Write-Host "-> Confirmé : isparent=True — le label group est pleinement fonctionnel.`n" -ForegroundColor Green
 } else {
-    Write-Host "-> isparent toujours False — réplication possiblement en cours.`n" -ForegroundColor Yellow
+    Write-Host "-> ATTENTION : isparent toujours False malgré la présence du sublabel." -ForegroundColor Yellow
+    Write-Host "-> Réplication possiblement encore en cours — revérifier dans quelques minutes.`n" -ForegroundColor Yellow
 }
 
+# --- RÉCAPITULATIF FINAL ---
+Write-Host "=== RÉCAPITULATIF ===" -ForegroundColor Cyan
+[PSCustomObject]@{
+    LabelGroup      = $VerifyGroup.DisplayName
+    LabelGroupGuid  = $VerifyGroup.Guid
+    Sublabel        = $VerifySubLabel.DisplayName
+    SublabelGuid    = $VerifySubLabel.Guid
+    SublabelParent  = $VerifySubLabel.ParentId
+} | Format-List
+
 # --- NETTOYAGE MÉMOIRE ---
-Remove-Variable LabelGroup, SubLabel, CheckGroup -ErrorAction SilentlyContinue
+Remove-Variable LabelGroup, SubLabel, VerifyGroup, VerifySubLabel, CheckGroup, IsParentEntry `
+    -ErrorAction SilentlyContinue
 
 # --- FERMETURE ---
 Get-PSSession | Remove-PSSession
