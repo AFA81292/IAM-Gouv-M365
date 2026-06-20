@@ -23,12 +23,12 @@ Get-PSSession | Remove-PSSession
 Connect-IPPSSession -UserPrincipalName GeptorAdmin@0n4mg.onmicrosoft.com -ShowBanner:$false
 
 # --- ÉTAPE 1 : Création du label group ---
-Write-Host "1. Création du label group 'NSR2 - Confidentiel'..." -ForegroundColor Cyan
+Write-Host "1. Création du label group 'NormandySR2 - Confidentiel'..." -ForegroundColor Cyan
 
 try {
     $LabelGroup = New-Label `
-        -Name "NSR2 - Confidentiel" `
-        -DisplayName "NSR2 - Confidentiel" `
+        -Name "NormandySR2 - Confidentiel" `
+        -DisplayName "NormandySR2 - Confidentiel" `
         -Tooltip "Documents confidentiels Cerberus Corp — groupe de classification" `
         -Comment "Label group créé en PowerShell. Cerberus Corp IAM Lab." `
         -AdvancedSettings @{islabelgroup="True"} `
@@ -43,7 +43,7 @@ catch {
 
 # --- ÉTAPE 1bis : Vérification immédiate de la création du groupe ---
 Start-Sleep -Seconds 15
-$VerifyGroup = Get-Label -Identity "NSR2 - Confidentiel" -ErrorAction SilentlyContinue
+$VerifyGroup = Get-Label -Identity "NormandySR2 - Confidentiel" -ErrorAction SilentlyContinue
 
 if (-not $VerifyGroup) {
     Write-Host "-> ÉCHEC : le label group n'est pas retrouvable après création. Arrêt du script." -ForegroundColor Red
@@ -52,12 +52,12 @@ if (-not $VerifyGroup) {
 Write-Host "-> Label group confirmé présent dans Purview.`n" -ForegroundColor Green
 
 # --- ÉTAPE 2 : Création du premier sublabel rattaché ---
-Write-Host "2. Création du premier sublabel 'NSR2 - Interne'..." -ForegroundColor Cyan
+Write-Host "2. Création du premier sublabel 'NormandySR2 - Interne'..." -ForegroundColor Cyan
 
 try {
     $SubLabel = New-Label `
-        -Name "NSR2 - Interne" `
-        -DisplayName "NSR2 - Interne" `
+        -Name "NormandySR2 - Interne" `
+        -DisplayName "NormandySR2 - Interne" `
         -ParentId $LabelGroup.Guid `
         -Tooltip "Document confidentiel à usage interne uniquement" `
         -Comment "Sublabel sans chiffrement à ce stade — chiffrement ajouté en exo 2b." `
@@ -74,16 +74,16 @@ catch {
 Write-Host "3. Vérification finale (propagation ~20s)..." -ForegroundColor Cyan
 Start-Sleep -Seconds 20
 
-$VerifySubLabel = Get-Label -Identity "NSR2 - Interne" -ErrorAction SilentlyContinue
+$VerifySubLabel = Get-Label -Identity "NormandySR2 - Interne" -ErrorAction SilentlyContinue
 
 if (-not $VerifySubLabel) {
-    Write-Host "-> ÉCHEC : le sublabel 'NSR2 - Interne' n'est pas retrouvable après création." -ForegroundColor Red
+    Write-Host "-> ÉCHEC : le sublabel 'NormandySR2 - Interne' n'est pas retrouvable après création." -ForegroundColor Red
     Write-Host "-> Vérifier manuellement dans le portail Purview avant de continuer." -ForegroundColor Red
     return
 }
 Write-Host "-> Sublabel confirmé présent dans Purview." -ForegroundColor Green
 
-$CheckGroup = Get-Label -Identity "NSR2 - Confidentiel"
+$CheckGroup = Get-Label -Identity "NormandySR2 - Confidentiel"
 $IsParentEntry = $CheckGroup.Settings | Where-Object { $_.Name -eq "isparent" }
 
 if ($IsParentEntry.Value -eq "True") {
