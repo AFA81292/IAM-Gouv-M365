@@ -19,25 +19,12 @@ Write-Host "1. Labels existants sur le tenant..." -ForegroundColor Cyan
 
 $AllLabels = Get-Label
 
-# Settings est une collection de paires clé/valeur, mais sa forme exacte (propriété
-# .Name/.Value vs .Key/.Value, casse de "islabelgroup") peut varier selon la version
-# du module ExchangeOnlineManagement. Plutôt que de supposer une forme, on regarde
-# concrètement ce qu'un label avec des Settings renvoie, et on construit le filtre
-# sur ce qu'on observe — ça reste valable si Microsoft change légèrement le format.
-$SampleSettings = ($AllLabels | Where-Object { $_.Settings -and $_.Settings.Count -gt 0 } | Select-Object -First 1).Settings
-
-if ($SampleSettings) {
-    $KeyProperty = if ($SampleSettings[0].PSObject.Properties.Name -contains "Name") { "Name" } else { "Key" }
-} else {
-    $KeyProperty = "Name"
-}
-
-$LabelGroups = $AllLabels | Where-Object {
-    $settings = $_.Settings
-    if (-not $settings) { return $false }
-    $match = $settings | Where-Object { $_.$KeyProperty -ieq "islabelgroup" }
-    $match -and ($match.Value -ieq "True")
-}
+# Get-Label expose IsParent directement comme propriété de l'objet — pas besoin
+# d'aller fouiller dans Settings (qui est une ArrayList de paires [clé, valeur]
+# positionnelles, pas un objet avec des propriétés .Name/.Value : un piège si on
+# essaie de filtrer dessus directement). IsParent = True signifie "ce label sert
+# de conteneur à au moins un sublabel" — c'est la définition même d'un label group.
+$LabelGroups = $AllLabels | Where-Object { $_.IsParent -eq $true }
 
 Write-Host "`n-- Label groups --" -ForegroundColor Yellow
 if ($LabelGroups) {
@@ -46,10 +33,9 @@ if ($LabelGroups) {
     Write-Host "   Aucun label group trouvé sur ce tenant.`n" -ForegroundColor Gray
 }
 
-# Pour les sublabels, on exclut les labels système Microsoft par défaut (ils ont
-# eux aussi un ParentId renseigné, vers leur propre groupe natif "Global"/"Default").
-# On ne garde que les sublabels dont le parent est UN DES label groups identifiés
-# ci-dessus — générique, ne dépend d'aucun nom métier codé en dur.
+# Sublabels = labels dont le ParentId pointe vers un des groupes ci-dessus. On
+# exclut ainsi les labels système Microsoft par défaut, qui ont eux aussi un
+# ParentId mais vers leur propre groupe natif, pas vers un de nos groupes.
 $GroupGuids = $LabelGroups.Guid
 $SubLabels  = $AllLabels | Where-Object { $_.ParentId -and ($GroupGuids -contains $_.ParentId) }
 
@@ -98,8 +84,8 @@ Write-Host "=== RÉCAPITULATIF ===" -ForegroundColor Cyan
 } | Format-List
 
 # --- NETTOYAGE MÉMOIRE ---
-Remove-Variable AllLabels, SampleSettings, KeyProperty, LabelGroups, GroupGuids, SubLabels, `
-                AllLabelPolicies, AllAutoPolicies -ErrorAction SilentlyContinue
+Remove-Variable AllLabels, LabelGroups, GroupGuids, SubLabels, AllLabelPolicies, AllAutoPolicies `
+    -ErrorAction SilentlyContinue
 
 # --- FERMETURE ---
 Get-PSSession | Remove-PSSession
