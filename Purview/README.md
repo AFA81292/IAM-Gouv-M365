@@ -128,24 +128,43 @@ Get-PSSession | Remove-PSSession
 </details>
 
 ---
-
 ### 03_Message_Encryption
 * [Exo 3a : Vérification de l'état IRM sur le tenant](./03_Message_Encryption/exo3a-check-irm.ps1)
   * Objectif : Contrôler l'état d'Azure RMS et d'IRM — prérequis indispensable avant tout exercice de chiffrement de messages.
   * Connexion requise : `Connect-ExchangeOnline`
-* [Exo 3b : Transport Rule OME — Encrypt-Only](./03_Message_Encryption/exo3b-transport-rule-encrypt-only.ps1)
-  * Objectif : Créer une règle de flux qui applique automatiquement le template OME `Encrypt-Only` sur les mails sortants contenant le mot-clé `CONFIDENTIEL`.
+* [Exo 3b : Transport Rule OME — chiffrement par mot-clé](./03_Message_Encryption/exo3b-transport-rule-encrypt-only.ps1)
+  * Objectif : Créer une règle de flux qui applique automatiquement le template de chiffrement simple (résolu dynamiquement — `Chiffrer`/`Encrypt` selon la langue du tenant, pas un nom en dur) sur les mails sortants contenant le mot-clé `CONFIDENTIEL`.
   * Connexion requise : `Connect-ExchangeOnline`
   * Licence requise : Microsoft Purview Message Encryption (inclus E3/E5)
-* [Exo 3c : Transport Rule OME — Do Not Forward hors tenant](./03_Message_Encryption/exo3c-transport-rule-dnf.ps1)
+* [Exo 3c : Transport Rule OME — déclenchement par classification (SIT)](./03_Message_Encryption/exo3c-transport-rule-classification.ps1)
+  * Objectif : Appliquer le même chiffrement que 3b, mais déclenché par la détection du SIT custom `Cerberus Corp - Numéro de Badge Interne` (créé en 1b) via `MessageContainsDataClassifications`, plutôt que par un mot-clé statique — démontre l'indépendance entre condition et action d'une Transport Rule.
+  * Connexion requise : `Connect-IPPSSession` (vérification du SIT, surface Security & Compliance) **et** `Connect-ExchangeOnline` (création de la règle, surface Exchange) — premier exo du chapitre à nécessiter les deux sessions simultanément.
+  * Licence requise : Microsoft Purview Message Encryption (inclus E3/E5)
+* [Exo 3d : Transport Rule OME — Do Not Forward hors tenant](./03_Message_Encryption/exo3d-transport-rule-dnf.ps1)
   * Objectif : Créer une règle de flux qui applique `Do Not Forward` sur les mails envoyés vers des destinataires extérieurs au tenant.
   * Connexion requise : `Connect-ExchangeOnline`
   * Licence requise : Microsoft Purview Message Encryption (inclus E3/E5)
-* [Exo 3d : Audit des Transport Rules liées au chiffrement](./03_Message_Encryption/exo3d-audit-transport-rules.ps1)
+* [Exo 3e : Audit des Transport Rules liées au chiffrement](./03_Message_Encryption/exo3e-audit-transport-rules.ps1)
   * Objectif : Lister toutes les Transport Rules du tenant, filtrer celles qui portent une action OME, afficher leur état et leur priorité.
   * Connexion requise : `Connect-ExchangeOnline`
- 
-    
+
+> **Note technique — nommage des templates RMS dépendant de la langue du tenant :**
+> `Get-RMSTemplate` retourne des noms localisés selon la langue d'affichage du tenant. Sur ce
+> tenant (FR), les templates système s'appellent `Chiffrer` / `Ne pas transférer`, pas
+> `Encrypt` / `Do Not Forward` comme le suggère la documentation Microsoft (rédigée en EN).
+> Aucun script de ce chapitre ne fixe donc un nom de template en dur : la résolution se fait
+> par filtre EN+FR (`-match "Encrypt|Chiffrer"`), avec une variable d'override manuel en
+> secours si l'heuristique échoue sur un tenant dans une autre langue.
+
+> **Note technique — deux surfaces de cmdlets dans ce chapitre :**
+> Les Transport Rules (`New-TransportRule`, `Get-RMSTemplate`, `Get-IRMConfiguration`) sont
+> exclusivement Exchange Online (`Connect-ExchangeOnline`). Les Sensitive Information Types
+> (`Get-DlpSensitiveInformationType`) sont exclusivement Security & Compliance
+> (`Connect-IPPSSession`). Dès qu'un exercice combine condition basée sur un SIT et action
+> de Transport Rule (cas de 3c), les deux sessions doivent être ouvertes simultanément —
+> oubli facile si on copie-colle l'ouverture de session d'un exo qui n'utilisait qu'une
+> seule des deux surfaces.
+
 > **Note technique — Advanced Message Encryption (AME) :**
 > AME ajoute deux capacités au-dessus de l'OME standard : le **branding personnalisé** du portail
 > de lecture (logo, couleurs, message d'accueil) et la **révocation de message** — possibilité de
@@ -162,6 +181,14 @@ Get-PSSession | Remove-PSSession
 > exercice PowerShell autonome sur tenant dev. Configuration via :
 > **Exchange Admin Center > Mail flow > Message encryption**.
 
+> **Note technique — chevauchement label / transport rule sur un même SIT :**
+> Le SIT `Cerberus Corp - Numéro de Badge Interne` (créé en 1b) déclenche désormais deux
+> mécanismes indépendants : l'auto-labeling de l'exo 2e (qui applique un label potentiellement
+> chiffrant) et la Transport Rule de l'exo 3c (qui applique un template RMS directement). Les
+> deux peuvent s'exécuter sur le même message. Ce n'est pas un défaut de configuration — c'est
+> un point réel de précédence à connaître en environnement de production, documenté ici plutôt
+> que découvert en audit.
+
 <details>
 <summary>Commandes utiles en une ligne — Message Encryption</summary>
 
@@ -169,7 +196,7 @@ Get-PSSession | Remove-PSSession
 # Vérifier l'état IRM complet du tenant
 Get-IRMConfiguration | Format-List
 
-# Lister les templates RMS disponibles (Encrypt-Only, Do Not Forward, custom)
+# Lister les templates RMS disponibles (noms localisés selon la langue du tenant)
 Get-RMSTemplate | Select-Object Name, Description, Guid
 
 # Lister toutes les Transport Rules par priorité
@@ -177,7 +204,7 @@ Get-TransportRule | Select-Object Name, Priority, State | Sort-Object Priority
 
 # Filtrer les rules avec une action OME (chiffrement appliqué)
 Get-TransportRule | Where-Object {
-    $_.ApplyRightsProtectionTemplate -ne $null -or $_.ApplyOME -eq $true
+    $_.ApplyRightsProtectionTemplate -ne $null
 } | Select-Object Name, State, Priority
 
 # Désactiver une Transport Rule sans la supprimer
@@ -189,10 +216,11 @@ Enable-TransportRule -Identity "Nom-de-la-rule"
 # Supprimer une Transport Rule
 Remove-TransportRule -Identity "Nom-de-la-rule" -Confirm:$false
 
-# Fermer proprement la session Exchange Online
-Disconnect-ExchangeOnline -Confirm:$false
+# Vérifier qu'un SIT custom existe (nécessite Connect-IPPSSession, pas Connect-ExchangeOnline)
+Get-DlpSensitiveInformationType -Identity "Nom-du-SIT" | Format-List
+
+# Fermer proprement toutes les sessions (Exchange Online ET Security & Compliance)
+Get-PSSession | Remove-PSSession
 ```
 
 </details>
-
----
