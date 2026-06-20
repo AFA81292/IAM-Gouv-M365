@@ -1,23 +1,23 @@
 # ========================================================================================
-# Exercice 2b : Sensitivity Labels — Sublabel avec chiffrement admin-defined
+# Exercice 2b : Sensitivity Labels — Chiffrement admin-defined sur un sublabel
 # ========================================================================================
-# Concept : Un sublabel hérite visuellement de son parent mais ajoute sa propre couche
-# de protection — ici, du chiffrement RMS (Rights Management Services).
+# Concept : Le sublabel "NSR2 - Interne" a été créé en 2a sans chiffrement. On lui
+# ajoute maintenant la couche de protection RMS via Set-Label — étape volontairement
+# séparée de la création pour rester lisible (1 action = 1 étape de script).
 #
 # Chiffrement "admin-defined" vs "user-defined" :
-#   - Admin-defined (ce script)  : l'admin fixe les permissions exactes à la création
-#     du label. L'utilisateur applique le label, les droits sont déjà figés.
+#   - Admin-defined (ce script)  : l'admin fixe les permissions exactes. L'utilisateur
+#     applique le label, les droits sont déjà figés.
 #   - User-defined               : l'utilisateur choisit lui-même les destinataires
-#     au moment d'appliquer le label (ex: "Chiffrer pour des personnes spécifiques").
+#     au moment d'appliquer le label.
 #
 # Permissions définies ici :
-#   - Co-Owner (contrôle total) : les membres du groupe IAM admin du tenant
-#   - Co-Author (lecture + modification, pas de réattribution de droits) : reste du tenant
+#   - Co-Owner (contrôle total) : Shepard
+#   - Co-Author (lecture + modification, pas de réattribution de droits) : Liara, Garrus
 #
 # Cas d'usage réel :
 #   - Documents internes sensibles où on veut garantir QUI peut les ouvrir,
 #     indépendamment du canal de partage (email, SharePoint, clé USB...)
-#   - Le chiffrement protège même si le fichier sort du périmètre M365
 #
 # Module requis : ExchangeOnlineManagement
 # Connexion : Connect-IPPSSession
@@ -28,52 +28,18 @@ Get-PSSession | Remove-PSSession
 Connect-IPPSSession -UserPrincipalName GeptorAdmin@0n4mg.onmicrosoft.com -ShowBanner:$false
 
 # --- ÉTAPE 1 : Définition des variables ---
-Write-Host "1. Définition du sublabel..." -ForegroundColor Cyan
+Write-Host "1. Définition des permissions..." -ForegroundColor Cyan
 
-$ParentLabelName = "Confidentiel"
-$SubLabelName    = "Confidentiel - Interne"
+$SubLabelName = "NSR2 - Interne"
+$CoOwners     = @("shepard@0n4mg.onmicrosoft.com")
+$CoAuthors    = @("liara@0n4mg.onmicrosoft.com", "garrus@0n4mg.onmicrosoft.com")
 
-# Utilisateurs du tenant — adapte selon les comptes présents dans ton tenant dev
-$CoOwners  = @("shepard@0n4mg.onmicrosoft.com")
-$CoAuthors = @("liara@0n4mg.onmicrosoft.com", "garrus@0n4mg.onmicrosoft.com")
+Write-Host "-> Sublabel cible : $SubLabelName`n" -ForegroundColor Green
 
-Write-Host "-> Sublabel : $SubLabelName" -ForegroundColor Green
-Write-Host "-> Parent   : $ParentLabelName`n" -ForegroundColor Green
-
-# --- ÉTAPE 2 : Récupération du label parent ---
-# Indispensable pour récupérer l'Id du parent et le passer en -ParentId
-Write-Host "2. Récupération du label parent..." -ForegroundColor Cyan
-
-$Parent = Get-Label -Identity $ParentLabelName -ErrorAction Stop
-Write-Host "-> Parent trouvé. Id : $($Parent.Guid)`n" -ForegroundColor Green
-
-# --- ÉTAPE 3 : Création du sublabel ---
-# -ParentId rattache ce label au parent — il apparaîtra en sous-menu dans les apps Office
-Write-Host "3. Création du sublabel..." -ForegroundColor Cyan
-
-try {
-    $NewSubLabel = New-Label `
-        -Name $SubLabelName `
-        -DisplayName $SubLabelName `
-        -ParentId $Parent.Guid `
-        -Tooltip "Document confidentiel à usage interne uniquement — chiffré" `
-        -Comment "Sublabel avec chiffrement admin-defined. Cerberus Corp IAM Lab." `
-        -ErrorAction Stop
-
-    Write-Host "-> Sublabel créé. Id : $($NewSubLabel.Guid)" -ForegroundColor Green
-}
-catch {
-    Write-Host "-> Échec création sublabel : $_" -ForegroundColor Red
-    return
-}
-
-# --- ÉTAPE 4 : Application du chiffrement admin-defined ---
-# -EncryptionEnabled active le RMS sur ce label
-# -EncryptionProtectionType "Template" indique un chiffrement admin-defined avec
-#   permissions fixes (par opposition à "UserDefined")
-# -EncryptionRightsDefinitions définit qui a quel niveau de droit, au format
-#   "email:DROITS" séparés par virgule. CO-OWNER = contrôle total. VIEW,EDIT = lecture/modif.
-Write-Host "4. Application du chiffrement..." -ForegroundColor Cyan
+# --- ÉTAPE 2 : Application du chiffrement admin-defined ---
+# -EncryptionProtectionType "Template" : chiffrement admin-defined (permissions fixes)
+# -EncryptionRightsDefinitions : format "email:DROITS" séparés par virgule
+Write-Host "2. Application du chiffrement..." -ForegroundColor Cyan
 
 $RightsDefinitions = @()
 foreach ($Owner in $CoOwners) {
@@ -101,8 +67,8 @@ catch {
     return
 }
 
-# --- ÉTAPE 5 : Vérification ---
-Write-Host "5. Vérification (propagation ~30s)..." -ForegroundColor Cyan
+# --- ÉTAPE 3 : Vérification ---
+Write-Host "3. Vérification (propagation ~30s)..." -ForegroundColor Cyan
 Start-Sleep -Seconds 30
 
 $CheckLabel = Get-Label -Identity $SubLabelName -IncludeDetailedLabelActions
@@ -121,10 +87,9 @@ if ($CheckLabel) {
 }
 
 # --- NETTOYAGE MÉMOIRE ---
-Remove-Variable ParentLabelName, SubLabelName, CoOwners, CoAuthors, Parent, `
-                NewSubLabel, RightsDefinitions, Owner, Author, CheckLabel `
-    -ErrorAction SilentlyContinue
+Remove-Variable SubLabelName, CoOwners, CoAuthors, RightsDefinitions, `
+                Owner, Author, CheckLabel -ErrorAction SilentlyContinue
 
 # --- FERMETURE ---
 Get-PSSession | Remove-PSSession
-Write-Host "`nSession fermée. Mémoire locale nettoyée." -ForegroundColor Magenta
+Write-Host "`nSession fermée." -ForegroundColor Magenta
