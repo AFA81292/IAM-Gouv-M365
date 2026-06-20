@@ -9,17 +9,21 @@
 #   Groupe dynamique  → membership automatique basé sur des attributs utilisateur
 #
 # Un groupe M365 peut aussi servir de cible pour une Label Policy Purview — c'est
-# l'objectif ici : créer GRP-Spectres pour l'utiliser en 2d (publication des labels
-# de sensibilité NormandySR2).
+# l'objectif ici : créer GRP-Spectres pour l'utiliser en Purview 2d (publication
+# des labels de sensibilité NormandySR2).
 #
-# Propriétés spécifiques aux groupes M365 :
-#   -GroupTypes @("Unified") : c'est ce paramètre qui fait la différence avec un
-#                              Security Group. Sans lui, on crée un groupe de sécurité.
-#   -MailEnabled $true       : obligatoire pour Unified — le groupe a une mailbox.
-#   -MailNickname            : alias email du groupe (sans espaces, sans accents).
-#   -SecurityEnabled $false  : un groupe M365 pur n'est pas un groupe de sécurité.
-#                              (On peut avoir les deux à true — "mail-enabled security
-#                              group" — mais c'est un cas hybride, pas l'objet ici.)
+# POURQUOI -BodyParameter ET PAS LES PARAMÈTRES DIRECTS ?
+#   New-MgGroup n'accepte pas $true/$false PowerShell directement sur -MailEnabled
+#   et -SecurityEnabled — erreur "A positional parameter cannot be found that accepts
+#   argument 'True'". La solution : passer un hashtable via -BodyParameter.
+#   Le SDK Graph le convertit en JSON correctement typé, sans ambiguïté.
+#
+# Propriétés spécifiques aux groupes M365 dans le hashtable :
+#   GroupTypes      : @("Unified") — c'est ce qui distingue un groupe M365 d'un
+#                     Security Group. Sans cette valeur, on crée un groupe de sécurité.
+#   MailEnabled     : $true — obligatoire pour Unified, le groupe a une mailbox.
+#   MailNickname    : alias email du groupe (sans espaces, sans accents).
+#   SecurityEnabled : $false — un groupe M365 pur n'est pas un groupe de sécurité.
 #
 # Module requis : Microsoft.Graph
 # Scopes requis : Group.ReadWrite.All
@@ -34,39 +38,38 @@ Connect-MgGraph -Scopes "Group.ReadWrite.All" -ContextScope Process -NoWelcome
 # --- ÉTAPE 0 : Vérification — le groupe existe déjà ? ---
 Write-Host "0. Vérification existence préalable..." -ForegroundColor Cyan
 
-$GroupName     = "GRP-Spectres"
-$MailNickname  = "GRP-Spectres"
+$GroupName    = "GRP-Spectres"
+$MailNickname = "GRP-Spectres"
 
-# On filtre par DisplayName via l'opérateur -filter Graph.
-# Note : Graph est sensible à la casse sur certains filtres — on double-vérifie
-# avec Where-Object côté PowerShell pour être sûr.
 $ExistingGroup = Get-MgGroup -Filter "DisplayName eq '$GroupName'" -ErrorAction SilentlyContinue |
                  Where-Object { $_.DisplayName -eq $GroupName }
 
 if ($ExistingGroup) {
     Write-Host "-> Groupe '$GroupName' déjà présent (Id : $($ExistingGroup.Id))." -ForegroundColor Yellow
-    Write-Host "   Aucune action — utiliser l'Id ci-dessus pour l'exo 2d." -ForegroundColor Yellow
+    Write-Host "   Aucune action — utiliser l'Id ci-dessus pour l'exo Purview 2d." -ForegroundColor Yellow
     Disconnect-MgGraph | Out-Null
     return
 }
 Write-Host "-> Groupe absent — création en cours.`n" -ForegroundColor Green
 
-# --- ÉTAPE 1 : Création du groupe M365 ---
+# --- ÉTAPE 1 : Création du groupe M365 via BodyParameter ---
 Write-Host "1. Création du groupe M365 '$GroupName'..." -ForegroundColor Cyan
 
+$GroupParams = @{
+    DisplayName     = $GroupName
+    Description     = "Groupe de test Purview — cible des Label Policies NormandySR2. Spectres : agents d'élite du Conseil, accès de confiance."
+    GroupTypes      = @("Unified")
+    MailEnabled     = $true
+    MailNickname    = $MailNickname
+    SecurityEnabled = $false
+}
+
 try {
-    $NewGroup = New-MgGroup `
-        -DisplayName     $GroupName `
-        -Description     "Groupe de test Purview — cible des Label Policies NormandySR2. Spectres : agents d'élite du Conseil, accès de confiance." `
-        -GroupTypes      @("Unified") `
-        -MailEnabled     $true `
-        -MailNickname    $MailNickname `
-        -SecurityEnabled $false `
-        -ErrorAction Stop
+    $NewGroup = New-MgGroup -BodyParameter $GroupParams -ErrorAction Stop
 
     Write-Host "-> Groupe créé." -ForegroundColor Green
-    Write-Host "   Id          : $($NewGroup.Id)" -ForegroundColor DarkGray
-    Write-Host "   Mail        : $($NewGroup.Mail)`n" -ForegroundColor DarkGray
+    Write-Host "   Id   : $($NewGroup.Id)" -ForegroundColor DarkGray
+    Write-Host "   Mail : $($NewGroup.Mail)`n" -ForegroundColor DarkGray
 }
 catch {
     Write-Host "-> Échec création : $_" -ForegroundColor Red
@@ -77,7 +80,6 @@ catch {
 # --- ÉTAPE 2 : Ajout de membres ---
 Write-Host "2. Ajout des membres..." -ForegroundColor Cyan
 
-# On ajoute Shepard, Liara et Garrus — les mêmes comptes utilisés en 2b.
 # New-MgGroupMember attend l'Id de l'utilisateur, pas son UPN — on résout
 # d'abord chaque UPN via Get-MgUser.
 $Members = @(
@@ -114,20 +116,20 @@ if (-not $CheckGroup) {
 else {
     Write-Host "-> Groupe confirmé :" -ForegroundColor Green
     [PSCustomObject]@{
-        Nom          = $CheckGroup.DisplayName
-        Id           = $CheckGroup.Id
-        Mail         = $CheckGroup.Mail
-        Type         = ($CheckGroup.GroupTypes -join ", ")
-        MailEnabled  = $CheckGroup.MailEnabled
-        Membres      = ($CheckMembers | ForEach-Object {
-                            (Get-MgUser -UserId $_.Id -ErrorAction SilentlyContinue).UserPrincipalName
-                        }) -join ", "
+        Nom         = $CheckGroup.DisplayName
+        Id          = $CheckGroup.Id
+        Mail        = $CheckGroup.Mail
+        Type        = ($CheckGroup.GroupTypes -join ", ")
+        MailEnabled = $CheckGroup.MailEnabled
+        Membres     = ($CheckMembers | ForEach-Object {
+                          (Get-MgUser -UserId $_.Id -ErrorAction SilentlyContinue).UserPrincipalName
+                      }) -join ", "
     } | Format-List
 }
 
 # --- NETTOYAGE MÉMOIRE ---
-Remove-Variable GroupName, MailNickname, ExistingGroup, NewGroup, Members, `
-                Upn, User, CheckGroup, CheckMembers -ErrorAction SilentlyContinue
+Remove-Variable GroupName, MailNickname, ExistingGroup, GroupParams, NewGroup, `
+                Members, Upn, User, CheckGroup, CheckMembers -ErrorAction SilentlyContinue
 
 # --- FERMETURE ---
 Disconnect-MgGraph | Out-Null
