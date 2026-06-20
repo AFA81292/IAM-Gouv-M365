@@ -130,69 +130,47 @@ Get-PSSession | Remove-PSSession
 ---
 
 ### 03_Message_Encryption
-* [Exo 3a : Vérification de l'état IRM sur le tenant](./03_Message_Encryption/exo3a-check-irm.ps1)
-  * Objectif : Contrôler l'état d'Azure RMS et d'IRM — prérequis indispensable avant tout exercice de chiffrement de messages.
-  * Connexion requise : `Connect-ExchangeOnline`
-* [Exo 3b : Transport Rule OME — Encrypt-Only](./03_Message_Encryption/exo3b-transport-rule-encrypt-only.ps1)
-  * Objectif : Créer une règle de flux qui applique automatiquement le template OME `Encrypt-Only` sur les mails sortants contenant le mot-clé `CONFIDENTIEL`.
-  * Connexion requise : `Connect-ExchangeOnline`
-  * Licence requise : Microsoft Purview Message Encryption (inclus E3/E5)
-* [Exo 3c : Transport Rule OME — Do Not Forward hors tenant](./03_Message_Encryption/exo3c-transport-rule-dnf.ps1)
-  * Objectif : Créer une règle de flux qui applique `Do Not Forward` sur les mails envoyés vers des destinataires extérieurs au tenant.
-  * Connexion requise : `Connect-ExchangeOnline`
-  * Licence requise : Microsoft Purview Message Encryption (inclus E3/E5)
-* [Exo 3d : Audit des Transport Rules liées au chiffrement](./03_Message_Encryption/exo3d-audit-transport-rules.ps1)
-  * Objectif : Lister toutes les Transport Rules du tenant, filtrer celles qui portent une action OME, afficher leur état et leur priorité.
-  * Connexion requise : `Connect-ExchangeOnline`
- 
-    
-> **Note technique — Advanced Message Encryption (AME) :**
-> AME ajoute deux capacités au-dessus de l'OME standard : le **branding personnalisé** du portail
-> de lecture (logo, couleurs, message d'accueil) et la **révocation de message** — possibilité de
-> couper l'accès à un mail déjà envoyé, à condition que le destinataire le lise via le portail web OME
-> (pas via un client Outlook natif qui aurait déchiffré le message localement).
->
-> En production, AME est pertinent dans deux scénarios : communications client avec charte graphique
-> imposée (secteur bancaire, juridique) et gestion de crise post-envoi (mauvais destinataire,
-> fuite de données — on révoque l'accès avant que le mail soit lu).
->
-> AME nécessite une licence **E5 ou l'add-on Microsoft Purview Message Encryption**. Les cmdlets
-> existent (`New-OMEConfiguration`, `Set-OMEConfiguration`) mais le résultat n'est vérifiable
-> qu'en envoyant un vrai mail et en inspectant le portail de lecture — hors périmètre d'un
-> exercice PowerShell autonome sur tenant dev. Configuration via :
-> **Exchange Admin Center > Mail flow > Message encryption**.
+* [Exo 3a : Vérification de l'état IRM/RMS](./03_Message_Encryption/exo3a-check-irm-config.ps1)
+  * Objectif : Vérifier que Azure RMS est actif sur le tenant, lister les templates RMS disponibles, tester la connectivité du service via `Test-IRMConfiguration`.
+* [Exo 3b : Transport Rule OME par mot-clé](./03_Message_Encryption/exo3b-transportrule-keyword-encrypt.ps1)
+  * Objectif : Chiffrer automatiquement les mails internes contenant le mot-clé `CONFIDENTIEL` (sujet ou corps), via un template de chiffrement simple résolu dynamiquement.
+* [Exo 3c : Transport Rule OME par classification (SIT custom)](./03_Message_Encryption/exo3c-transportrule-sit-encrypt.ps1)
+  * Objectif : Déclencher le même chiffrement que 3b, mais sur la détection du SIT custom `GCORP-XXXXX` créé en 1b plutôt que sur un mot-clé statique — démontre l'indépendance entre condition et action d'une Transport Rule.
+* [Exo 3d : Transport Rule OME Do Not Forward (externe)](./03_Message_Encryption/exo3d-transportrule-dnf-external.ps1)
+  * Objectif : Chiffrer avec restriction de transfert les mails envoyés hors du tenant (`SentToScope NotInOrganization`), distinct de la portée "sortant" utilisée en 3b/3c.
+  * Licence requise : Microsoft Purview Message Encryption (inclus E5). Test de l'Advanced Message Encryption (branding) prévu sur cet exo.
+* [Exo 3e : Audit des Transport Rules de chiffrement](./03_Message_Encryption/exo3e-audit-transport-rules.ps1)
+  * Objectif : Lister les Transport Rules liées au chiffrement, filtrer sur celles utilisant `ApplyRightsProtectionTemplate`, afficher leur Mode et leur état.
+
+> **Note technique — nommage des templates RMS dépendant de la langue :** `Get-RMSTemplate` retourne des noms localisés selon la langue d'affichage du tenant. Sur ce tenant (FR), les templates système s'appellent `Chiffrer` / `Ne pas transférer`, pas `Encrypt` / `Do Not Forward`. Aucun script de ce chapitre ne doit donc fixer un nom de template en dur : la résolution se fait dynamiquement via un filtre EN+FR, avec une variable d'override manuel en secours si l'heuristique échoue sur un autre tenant.
+
+> **Note technique — chevauchement label / transport rule sur un même SIT :** Le SIT `GCORP-XXXXX` (créé en 1b) déclenche désormais deux mécanismes indépendants : l'auto-labeling de l'exo 2e (qui applique un label potentiellement chiffrant) et la Transport Rule de l'exo 3c (qui applique un template RMS directement). Les deux peuvent s'exécuter sur le même message. Ce n'est pas un défaut de configuration — c'est un point réel de précédence à connaître en environnement de production, documenté ici plutôt que découvert en audit.
 
 <details>
 <summary>Commandes utiles en une ligne — Message Encryption</summary>
 
 ```powershell
-# Vérifier l'état IRM complet du tenant
-Get-IRMConfiguration | Format-List
+# Lister toutes les Transport Rules
+Get-TransportRule | Select-Object Name, Mode, State, Priority
 
-# Lister les templates RMS disponibles (Encrypt-Only, Do Not Forward, custom)
-Get-RMSTemplate | Select-Object Name, Description, Guid
+# Filtrer les Transport Rules liées au chiffrement OME
+Get-TransportRule | Where-Object { $_.ApplyRightsProtectionTemplate } |
+    Select-Object Name, Mode, ApplyRightsProtectionTemplate
 
-# Lister toutes les Transport Rules par priorité
-Get-TransportRule | Select-Object Name, Priority, State | Sort-Object Priority
+# Afficher le détail complet d'une règle
+Get-TransportRule -Identity "Nom-de-la-regle" | Format-List
 
-# Filtrer les rules avec une action OME (chiffrement appliqué)
-Get-TransportRule | Where-Object {
-    $_.ApplyRightsProtectionTemplate -ne $null -or $_.ApplyOME -eq $true
-} | Select-Object Name, State, Priority
+# Lister les templates RMS disponibles (noms localisés selon la langue du tenant)
+Get-RMSTemplate | Select-Object Name, Guid
 
-# Désactiver une Transport Rule sans la supprimer
-Disable-TransportRule -Identity "Nom-de-la-rule"
-
-# Réactiver une Transport Rule
-Enable-TransportRule -Identity "Nom-de-la-rule"
+# Repasser une règle en mode Audit (désactiver l'enforcement sans la supprimer)
+Set-TransportRule -Identity "Nom-de-la-regle" -Mode AuditAndNotify
 
 # Supprimer une Transport Rule
-Remove-TransportRule -Identity "Nom-de-la-rule" -Confirm:$false
+Remove-TransportRule -Identity "Nom-de-la-regle"
 
 # Fermer proprement la session Exchange Online
 Disconnect-ExchangeOnline -Confirm:$false
 ```
 
 </details>
-
----
