@@ -41,19 +41,34 @@ $CoAuthors = @("liara@0n4mg.onmicrosoft.com", "garrus@0n4mg.onmicrosoft.com")
 # --- ÉTAPE 2 : Application du chiffrement admin-defined ---
 Write-Host "2. Application du chiffrement..." -ForegroundColor Cyan
 
-$RightsDefinitions = @()
+# DÉCOUVERTE TECHNIQUE : EncryptionRightsDefinitions n'accepte PAS un tableau
+# PowerShell (List<string>) malgré ce qu'on pourrait attendre. Le paramètre est
+# de type custom EncryptionRightsDefinitionsParameter et n'accepte qu'UNE SEULE
+# chaîne au format : "identite1:droit1,droit2;identite2:droit3,droit4"
+# Construire le tableau puis le -join ";" résout l'erreur de transformation
+# d'argument observée avec un tableau brut.
+#
+# Autre piège : "OWNER" est le seul mot-clé valide pour un contrôle total
+# (le portail Purview affiche "Co-Owner"/"Owner" selon la version, mais la
+# valeur PowerShell sous-jacente est toujours OWNER — "CO-OWNER" lève une
+# erreur de droit invalide une fois le problème de type résolu).
+$RightsEntries = @()
 foreach ($Owner in $CoOwners) {
-    $RightsDefinitions += "${Owner}:CO-OWNER"
+    $RightsEntries += "${Owner}:OWNER"
 }
 foreach ($Author in $CoAuthors) {
-    $RightsDefinitions += "${Author}:VIEW,EDIT,EXTRACT,REPLY,REPLYALL,FORWARD"
+    $RightsEntries += "${Author}:VIEW,EDIT,EXTRACT,REPLY,REPLYALL,FORWARD"
 }
+
+# Conversion en chaîne unique semicolon-separated — c'est LE point critique
+$RightsDefinitionsString = $RightsEntries -join ";"
+Write-Host "-> Chaîne construite : $RightsDefinitionsString" -ForegroundColor DarkGray
 
 try {
     Set-Label -Identity $SubLabelName `
         -EncryptionEnabled $true `
         -EncryptionProtectionType "Template" `
-        -EncryptionRightsDefinitions $RightsDefinitions `
+        -EncryptionRightsDefinitions $RightsDefinitionsString `
         -EncryptionContentExpiredOnDateInDaysOrNever "Never" `
         -EncryptionOfflineAccessDays 30 `
         -ErrorAction Stop
@@ -84,7 +99,7 @@ if (-not $CheckLabel -or -not $CheckLabel.EncryptionEnabled) {
 }
 
 # --- NETTOYAGE MÉMOIRE ---
-Remove-Variable SubLabelName, TargetExists, CoOwners, CoAuthors, RightsDefinitions, `
+Remove-Variable SubLabelName, TargetExists, CoOwners, CoAuthors, RightsEntries, RightsDefinitionsString, `
                 Owner, Author, CheckLabel -ErrorAction SilentlyContinue
 
 # --- FERMETURE ---
