@@ -128,3 +128,68 @@ Get-PSSession | Remove-PSSession
 </details>
 
 ---
+
+### 03_Message_Encryption
+* [Exo 3a : Vérification de l'état IRM sur le tenant](./03_Message_Encryption/exo3a-check-irm.ps1)
+  * Objectif : Contrôler l'état d'Azure RMS et d'IRM (Information Rights Management) — prérequis indispensable avant tout exercice de chiffrement de messages.
+  * Connexion requise : `Connect-ExchangeOnline`
+* [Exo 3b : Transport Rule OME — Encrypt-Only](./03_Message_Encryption/exo3b-transport-rule-encrypt-only.ps1)
+  * Objectif : Créer une règle de flux de messagerie qui applique automatiquement le template OME `Encrypt-Only` sur les mails sortants contenant le mot-clé `CONFIDENTIEL`.
+  * Connexion requise : `Connect-ExchangeOnline`
+* [Exo 3c : Transport Rule OME — Do Not Forward hors tenant](./03_Message_Encryption/exo3c-transport-rule-dnf.ps1)
+  * Objectif : Créer une règle de flux qui applique `Do Not Forward` sur les mails envoyés vers des destinataires extérieurs au tenant — le destinataire peut lire, mais ne peut pas transférer, copier ni imprimer.
+  * Connexion requise : `Connect-ExchangeOnline`
+* [Exo 3d : Audit des Transport Rules liées au chiffrement](./03_Message_Encryption/exo3d-audit-transport-rules.ps1)
+  * Objectif : Lister toutes les Transport Rules du tenant, filtrer celles qui portent une action OME, afficher leur état et leur priorité.
+  * Connexion requise : `Connect-ExchangeOnline`
+
+> **Note technique — Advanced Message Encryption (AME) :**
+> AME ajoute deux capacités au-dessus de l'OME standard : le **branding personnalisé** du portail
+> de lecture (logo, couleurs, message d'accueil) et la **révocation de message** — possibilité de
+> couper l'accès à un mail déjà envoyé, à condition que le destinataire le lise via le portail web OME
+> (pas via un client Outlook natif qui aurait déchiffré le message localement).
+>
+> En production, AME est pertinent dans deux scénarios : communications client avec charte graphique
+> imposée (secteur bancaire, juridique) et gestion de crise post-envoi (mauvais destinataire,
+> fuite de données — on révoque l'accès avant que le mail soit lu).
+>
+> AME nécessite une licence **E5 ou l'add-on Microsoft Purview Message Encryption**. Les cmdlets
+> existent (`New-OMEConfiguration`, `Set-OMEConfiguration`) mais le résultat n'est vérifiable
+> qu'en envoyant un vrai mail et en inspectant le portail de lecture — hors périmètre d'un
+> exercice PowerShell autonome sur tenant dev. Configuration via :
+> **Exchange Admin Center > Mail flow > Message encryption**.
+
+<details>
+<summary>Commandes utiles en une ligne — Message Encryption</summary>
+
+```powershell
+# Vérifier l'état IRM complet du tenant
+Get-IRMConfiguration | Format-List
+
+# Lister les templates RMS disponibles (Encrypt-Only, Do Not Forward, custom)
+Get-RMSTemplate | Select-Object Name, Description, Guid
+
+# Lister toutes les Transport Rules par priorité
+Get-TransportRule | Select-Object Name, Priority, State | Sort-Object Priority
+
+# Filtrer les rules avec une action OME (chiffrement appliqué)
+Get-TransportRule | Where-Object {
+    $_.ApplyRightsProtectionTemplate -ne $null -or $_.ApplyOME -eq $true
+} | Select-Object Name, State, Priority
+
+# Désactiver une Transport Rule sans la supprimer
+Disable-TransportRule -Identity "Nom-de-la-rule"
+
+# Réactiver une Transport Rule
+Enable-TransportRule -Identity "Nom-de-la-rule"
+
+# Supprimer une Transport Rule
+Remove-TransportRule -Identity "Nom-de-la-rule" -Confirm:$false
+
+# Fermer proprement la session Exchange Online
+Disconnect-ExchangeOnline -Confirm:$false
+```
+
+</details>
+
+---
