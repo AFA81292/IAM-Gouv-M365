@@ -19,17 +19,41 @@ Write-Host "1. Labels existants sur le tenant..." -ForegroundColor Cyan
 
 $AllLabels = Get-Label
 
-# Un label group a islabelgroup=True dans ses Settings ; un sublabel a un ParentId
-# renseigné. Un label "normal" (ni groupe ni sublabel) n'a ni l'un ni l'autre.
-$LabelGroups = $AllLabels | Where-Object {
-    ($_.Settings | Where-Object { $_.Name -eq "islabelgroup" }).Value -eq "True"
+# Settings est une collection de paires clé/valeur, mais sa forme exacte (propriété
+# .Name/.Value vs .Key/.Value, casse de "islabelgroup") peut varier selon la version
+# du module ExchangeOnlineManagement. Plutôt que de supposer une forme, on regarde
+# concrètement ce qu'un label avec des Settings renvoie, et on construit le filtre
+# sur ce qu'on observe — ça reste valable si Microsoft change légèrement le format.
+$SampleSettings = ($AllLabels | Where-Object { $_.Settings -and $_.Settings.Count -gt 0 } | Select-Object -First 1).Settings
+
+if ($SampleSettings) {
+    $KeyProperty = if ($SampleSettings[0].PSObject.Properties.Name -contains "Name") { "Name" } else { "Key" }
+} else {
+    $KeyProperty = "Name"
 }
-$SubLabels = $AllLabels | Where-Object { $_.ParentId -and $_.ParentId -ne [guid]::Empty }
+
+$LabelGroups = $AllLabels | Where-Object {
+    $settings = $_.Settings
+    if (-not $settings) { return $false }
+    $match = $settings | Where-Object { $_.$KeyProperty -ieq "islabelgroup" }
+    $match -and ($match.Value -ieq "True")
+}
 
 Write-Host "`n-- Label groups --" -ForegroundColor Yellow
-$LabelGroups | Select-Object DisplayName, Guid | Format-Table -AutoSize
+if ($LabelGroups) {
+    $LabelGroups | Select-Object DisplayName, Guid | Format-Table -AutoSize
+} else {
+    Write-Host "   Aucun label group trouvé sur ce tenant.`n" -ForegroundColor Gray
+}
 
-Write-Host "-- Sublabels --" -ForegroundColor Yellow
+# Pour les sublabels, on exclut les labels système Microsoft par défaut (ils ont
+# eux aussi un ParentId renseigné, vers leur propre groupe natif "Global"/"Default").
+# On ne garde que les sublabels dont le parent est UN DES label groups identifiés
+# ci-dessus — générique, ne dépend d'aucun nom métier codé en dur.
+$GroupGuids = $LabelGroups.Guid
+$SubLabels  = $AllLabels | Where-Object { $_.ParentId -and ($GroupGuids -contains $_.ParentId) }
+
+Write-Host "-- Sublabels (rattachés à un label group identifié ci-dessus) --" -ForegroundColor Yellow
 $SubLabels | Select-Object DisplayName, ParentId, @{N="Chiffré";E={[bool]$_.EncryptionEnabled}} | Format-Table -AutoSize
 
 # --- ÉTAPE 2 : Label Policies (publication) ---
@@ -74,8 +98,8 @@ Write-Host "=== RÉCAPITULATIF ===" -ForegroundColor Cyan
 } | Format-List
 
 # --- NETTOYAGE MÉMOIRE ---
-Remove-Variable AllLabels, LabelGroups, SubLabels, AllLabelPolicies, AllAutoPolicies `
-    -ErrorAction SilentlyContinue
+Remove-Variable AllLabels, SampleSettings, KeyProperty, LabelGroups, GroupGuids, SubLabels, `
+                AllLabelPolicies, AllAutoPolicies -ErrorAction SilentlyContinue
 
 # --- FERMETURE ---
 Get-PSSession | Remove-PSSession
