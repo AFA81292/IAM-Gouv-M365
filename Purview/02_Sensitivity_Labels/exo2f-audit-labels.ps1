@@ -17,7 +17,11 @@ Connect-IPPSSession -UserPrincipalName GeptorAdmin@0n4mg.onmicrosoft.com -ShowBa
 # --- ÉTAPE 1 : Labels (groupe + sublabels) ---
 Write-Host "1. Labels existants sur le tenant..." -ForegroundColor Cyan
 
-$AllLabels = Get-Label
+$AllLabels = Get-Label -IncludeDetailedLabelActions
+
+# EncryptionEnabled (utilisé plus bas) n'est correctement peuplé qu'avec ce
+# paramètre — sans lui, il ressort toujours $false même sur un label réellement
+# chiffré. Get-Label seul donne un résumé allégé, pas l'état complet des actions.
 
 # Get-Label expose IsParent directement comme propriété de l'objet — pas besoin
 # d'aller fouiller dans Settings (qui est une ArrayList de paires [clé, valeur]
