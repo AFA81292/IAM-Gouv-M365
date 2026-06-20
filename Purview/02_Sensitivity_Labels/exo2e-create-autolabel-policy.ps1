@@ -33,22 +33,29 @@
 #
 #   On crée donc la policy d'abord (vide de logique), puis on lui attache sa règle.
 #
-# Mode TestWithNotifications — pourquoi pas Enable direct :
+# Mode TestWithoutNotifications — et pourquoi pas TestWithNotifications malgré la doc :
 #
 #   On ne bascule JAMAIS une auto-labeling policy en Enable sans être passé par une
-#   phase de simulation. TestWithNotifications est le choix réaliste en mission client :
-#     - Test                    : simule, log les matches dans Activity Explorer,
-#                                  AUCUNE notification, AUCUN label appliqué.
-#     - TestWithNotifications   : simule + notifie les utilisateurs concernés par email
-#                                  de ce qui SERAIT fait (transparence, prépare le terrain).
-#                                  AUCUN label réellement appliqué.
-#     - Enable                  : applique réellement le label. On n'y passe qu'après
-#                                  avoir validé en Test/TestWithNotifications qu'il n'y a
-#                                  pas de faux positifs en masse.
+#   phase de simulation. Trois modes existent en théorie :
+#     - TestWithoutNotifications : simule, log les matches dans Activity Explorer,
+#                                   AUCUNE notification, AUCUN label appliqué. Mode audit pur.
+#     - TestWithNotifications    : simule + notifie les utilisateurs de ce qui SERAIT fait.
+#     - Enable                   : applique réellement le label.
 #
-#   Ici on démarre directement en TestWithNotifications (on saute le Test silencieux)
-#   car le volume sur un tenant de dev est nul — pas de risque de spam de notifications.
-#   Sur un tenant de prod avec du volume réel, on commencerait par Test seul.
+#   PIÈGE DOCUMENTAIRE CONFIRMÉ EN TEST : Microsoft Learn liste "TestWithNotifications"
+#   comme valeur valide pour New-AutoSensitivityLabelPolicy. EN PRATIQUE, le cmdlet la
+#   rejette à la création avec ModeNotSupportedByMipCmdletException. Et la voie de
+#   contournement "créer en Test puis Set-AutoSensitivityLabelPolicy -Mode
+#   TestWithNotifications" ne fonctionne pas non plus : Set-AutoSensitivityLabelPolicy
+#   documente lui-même cette valeur comme "Not supported" sur ce cmdlet précis.
+#   Conclusion : TestWithNotifications est, à ce jour, une valeur fantôme côté
+#   PowerShell pour l'auto-labeling — accessible uniquement via le portail Purview
+#   (toggle GUI). On script donc en TestWithoutNotifications, qui est le seul mode
+#   de simulation réellement créable par cmdlet.
+#
+#   On démarre donc en TestWithoutNotifications (audit silencieux, observable
+#   uniquement via Activity Explorer) — cohérent avec un cycle de vie réel où on
+#   valide d'abord sans notifier personne, avant d'envisager un Enable.
 #
 # Seuil de détection — MinCount = 2 :
 #
@@ -103,7 +110,7 @@ Write-Host "   -> OK : SIT '$TargetSIT' trouvé.`n" -ForegroundColor Green
 # --- ÉTAPE 1 : Recherche d'un nom disponible pour la policy (auto-incrément) ---
 Write-Host "1. Recherche d'un nom disponible pour la policy..." -ForegroundColor Cyan
 
-$BasePolicyName = "AL-NormandySR2-BadgeCerberus"
+$BasePolicyName = "AL-NormandySR2-BadgeGCORP"
 $PolicyName     = $BasePolicyName
 $Counter        = 2
 
@@ -125,12 +132,12 @@ try {
         -Name                $PolicyName `
         -ExchangeLocation    "All" `
         -ApplySensitivityLabel $TargetLabel `
-        -Mode                "TestWithNotifications" `
-        -Comment             "Auto-labeling Exchange : détecte le SIT Cerberus Corp Badge (1b), applique NormandySR2 - Interne (2b). Simulation avec notifications." `
+        -Mode                "TestWithoutNotifications" `
+        -Comment             "Auto-labeling Exchange : détecte le SIT Cerberus Corp Badge GCORP-XXXXX (1b), applique NormandySR2 - Interne (2b). Simulation silencieuse (TestWithNotifications non supporté par le cmdlet — cf. note en en-tête)." `
         -ErrorAction Stop
 
     Write-Host "-> Policy créée. Guid : $($NewPolicy.Guid)" -ForegroundColor Green
-    Write-Host "-> Mode : TestWithNotifications (aucun label réellement appliqué pour l'instant).`n" -ForegroundColor Green
+    Write-Host "-> Mode : TestWithoutNotifications (audit silencieux, aucun label réellement appliqué).`n" -ForegroundColor Green
 }
 catch {
     Write-Host "-> Échec création policy : $_" -ForegroundColor Red
@@ -151,12 +158,43 @@ Write-Host "3. Création de la règle de détection..." -ForegroundColor Cyan
 # un minconfidence ici filtrerait en plus PAR-DESSUS cette logique déjà existante.
 # On laisse Purview évaluer avec sa logique native du SIT, et on ne contraint que
 # le nombre d'occurrences.
-$RuleName = "Rule-DetectBadgeCerberus"
+#
+# -Workload : paramètre OBLIGATOIRE, distinct de -ExchangeLocation vu sur la policy.
+#   -ExchangeLocation (sur la policy)  : QUELS emplacements Exchange sont dans le
+#                                        périmètre global de la policy (All, ou liste).
+#   -Workload (sur la règle)           : SUR QUEL workload CETTE règle précise s'évalue
+#                                        (Exchange, SharePoint, OneDrive...). Une policy
+#                                        peut couvrir plusieurs emplacements et contenir
+#                                        plusieurs règles ciblant des workloads différents.
+#   Ici les deux convergent sur Exchange — cohérent avec le scope de l'exercice.
+#
+# IMPORTANT — collision de noms découverte en test :
+#   Le nom d'une règle d'auto-labeling doit être unique sur TOUT le scénario
+#   "AutoLabeling" du tenant, pas seulement au sein de sa policy. Si on relance le
+#   script après un échec partiel (policy créée, règle en échec), le nom de policy
+#   ré-incrémente (AL-...-v2) mais le nom de règle restait fixe avant cette correction
+#   → collision avec une règle orpheline d'un essai précédent. On dérive donc le nom
+#   de règle DIRECTEMENT du suffixe déjà calculé pour $PolicyName (en remplaçant le
+#   préfixe de policy par un préfixe de règle), pour que policy et règle avancent
+#   toujours ensemble et ne collisionnent jamais entre deux tentatives.
+#
+#   AUTRE PIÈGE DE PROPAGATION DÉCOUVERT EN TEST : Remove-AutoSensitivityLabelRule et
+#   Remove-AutoSensitivityLabelPolicy ne suppriment pas instantanément l'objet — ils le
+#   passent en état "PendingDeletion", qui peut durer de plusieurs dizaines de minutes
+#   à plusieurs heures. Tant que cet état n'est pas finalisé, le NOM reste considéré
+#   comme "pris" par le service, et une nouvelle création portant le même nom échoue
+#   avec ComplianceRuleAlreadyExistsInScenarioException même si la policy/règle visible
+#   dans le portail semble avoir disparu. D'où le préfixe de base volontairement changé
+#   ici (BadgeGCORP plutôt que BadgeCerberus) après un essai précédent resté en
+#   PendingDeletion — pas une erreur de script, un contournement délibéré de latence
+#   backend Purview pour ne pas attendre la finalisation.
+$RuleName = $PolicyName -replace [regex]::Escape($BasePolicyName), "Rule-DetectBadgeGCORP"
 
 try {
     $NewRule = New-AutoSensitivityLabelRule `
         -Policy $PolicyName `
         -Name   $RuleName `
+        -Workload "Exchange" `
         -ContentContainsSensitiveInformation @{
             Name     = $TargetSIT
             MinCount = "2"
@@ -164,14 +202,45 @@ try {
         -ErrorAction Stop
 
     Write-Host "-> Règle créée : '$RuleName'." -ForegroundColor Green
-    Write-Host "-> Condition : SIT '$TargetSIT', MinCount = 2.`n" -ForegroundColor Green
+    Write-Host "-> Condition : SIT '$TargetSIT', MinCount = 2, Workload = Exchange.`n" -ForegroundColor Green
 }
 catch {
     Write-Host "-> Échec création règle : $_" -ForegroundColor Red
     Write-Host "-> Nettoyage : suppression de la policy orpheline '$PolicyName'..." -ForegroundColor Yellow
-    Remove-AutoSensitivityLabelPolicy -Identity $PolicyName -Confirm:$false -ErrorAction SilentlyContinue
+
+    # Pas de SilentlyContinue ici à l'aveugle : on veut SAVOIR si la suppression
+    # échoue, plutôt que de laisser un orphelin invisible sur le tenant (cf. incident
+    # de test où deux policies + une règle orphelines se sont accumulées sans alerte
+    # claire à cause d'un nettoyage silencieux en amont).
+    try {
+        Remove-AutoSensitivityLabelPolicy -Identity $PolicyName -Confirm:$false -ErrorAction Stop
+        Write-Host "-> Policy orpheline '$PolicyName' supprimée avec succès.`n" -ForegroundColor Green
+    }
+    catch {
+        Write-Host "-> ÉCHEC du nettoyage automatique : $_" -ForegroundColor Red
+        Write-Host "-> ACTION MANUELLE REQUISE : vérifier et supprimer '$PolicyName' à la main avant de relancer." -ForegroundColor Red
+    }
+
     Get-PSSession | Remove-PSSession
     return
+}
+
+# --- ÉTAPE 3 BIS : Démarrage explicite de la simulation ---
+# Purview ne lance PAS automatiquement la simulation à la création de la policy/règle
+# (cf. warning observé : "Any updates to auto labeling policy requires simulation to
+# be restarted"). Sans cette étape, la policy existe en base mais ne scanne rien —
+# Activity Explorer resterait vide indéfiniment. -StartSimulation $true force le
+# (re)démarrage du moteur de simulation pour qu'il prenne en compte la règle qu'on
+# vient d'attacher.
+Write-Host "3 bis. Démarrage de la simulation..." -ForegroundColor Cyan
+
+try {
+    Set-AutoSensitivityLabelPolicy -Identity $PolicyName -StartSimulation $true -ErrorAction Stop
+    Write-Host "-> Simulation démarrée.`n" -ForegroundColor Green
+}
+catch {
+    Write-Host "-> Échec démarrage simulation : $_" -ForegroundColor Red
+    Write-Host "-> La policy et la règle existent malgré tout — simulation à démarrer manuellement depuis le portail si besoin.`n" -ForegroundColor Yellow
 }
 
 # --- ÉTAPE 4 : Vérification ---
@@ -199,7 +268,8 @@ else {
 }
 
 # --- RAPPEL OPÉRATIONNEL ---
-# En mode TestWithNotifications, RIEN n'est appliqué. Pour observer le comportement :
+# En mode TestWithoutNotifications, RIEN n'est appliqué et AUCUNE notification n'est
+# envoyée — c'est un audit pur, observable uniquement côté admin. Pour l'observer :
 #   1. Envoyer un email de test contenant 2+ occurrences de "GCORP-12345" (ou autre
 #      numéro au bon format) à un destinataire interne, avec un mot-clé corroborant
 #      type "badge" pour viser la confiance haute (85).
@@ -208,9 +278,12 @@ else {
 #   3. Consulter Purview portal > Data Classification > Activity Explorer pour voir
 #      les matches simulés, ou Purview portal > Information Protection > Auto-labeling
 #      > la policy > onglet "Insights" pour le résumé de simulation.
-#   4. Une fois validé sans faux positif majeur, basculer en Enable via :
+#   4. Pour activer les notifications utilisateur sans encore appliquer le label,
+#      c'est une bascule GUI-only (portail Purview > la policy > Edit) — le cmdlet
+#      Set-AutoSensitivityLabelPolicy refuse explicitement cette valeur de Mode.
+#   5. Une fois validé sans faux positif majeur, basculer en application réelle via :
 #      Set-AutoSensitivityLabelPolicy -Identity $PolicyName -Mode Enable
-Write-Host "`nRappel : policy en mode simulation. Voir Activity Explorer dans le portail Purview pour observer les détections." -ForegroundColor Magenta
+Write-Host "`nRappel : policy en mode audit silencieux (TestWithoutNotifications). Voir Activity Explorer dans le portail Purview pour observer les détections." -ForegroundColor Magenta
 
 # --- NETTOYAGE MÉMOIRE ---
 Remove-Variable TargetLabel, LabelCheck, TargetSIT, SITCheck, BasePolicyName, PolicyName, `
