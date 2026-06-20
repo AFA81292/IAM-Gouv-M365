@@ -1,18 +1,14 @@
 # ========================================================================================
 # Exercice 2a : Sensitivity Labels — Création d'un label group via PowerShell
 # ========================================================================================
-# Concept : Sur le schéma moderne de labels Purview (actif par défaut sur tout tenant
-# créé après le 01/10/2025), un "label group" n'est PAS un objet distinct côté API.
-# C'est un label normal dont deux propriétés de settings sont positionnées :
-#   - islabelgroup : déclare l'intention "ce label sert de conteneur organisationnel"
-#   - isparent     : calculée AUTOMATIQUEMENT par le service Purview, PAS settable
-#                     manuellement. Elle passe à True dès qu'au moins un sublabel
-#                     référence ce label comme parent via -ParentId.
+# Un "label group" n'est pas un objet à part dans Purview — c'est un label normal
+# avec deux propriétés particulières :
+#   - islabelgroup : on la pose nous-mêmes, elle dit "ce label sert de conteneur"
+#   - isparent     : calculée par Purview tout seul, dès qu'un sublabel le référence
+#                     via -ParentId. On ne peut pas la forcer à la main.
 #
-# Découverte par investigation directe (documentée ici car contre-intuitive) :
-#   1. New-Label -AdvancedSettings @{islabelgroup="True"} crée le conteneur
-#   2. New-Label -ParentId <Guid-du-groupe> crée un sublabel rattaché
-#   3. Le service met alors isparent=True sur le groupe, en retour, sans action admin
+# Donc l'ordre logique est : créer le groupe vide → créer un sublabel qui pointe
+# dessus → Purview met isparent=True automatiquement en retour.
 #
 # Module requis : ExchangeOnlineManagement
 # Connexion : Connect-IPPSSession
@@ -41,7 +37,6 @@ catch {
     return
 }
 
-# --- ÉTAPE 1bis : Vérification immédiate de la création du groupe ---
 Start-Sleep -Seconds 15
 $VerifyGroup = Get-Label -Identity "NormandySR2 - Confidentiel" -ErrorAction SilentlyContinue
 
