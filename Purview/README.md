@@ -71,20 +71,10 @@ Get-PSSession | Remove-PSSession
 ---
 
 ### 02_Sensitivity_Labels
-
-> **Prérequis manuel :** Sur le schéma moderne de labels Purview (actif par défaut sur
-> tout tenant créé après le 01/10/2025), la création d'un **label group** n'est possible
-> que via le portail Purview — aucune cmdlet PowerShell équivalente n'existe à ce jour
-> (vérifié via `Get-Command "*Label*"` sur les modules ExchangeOnlineManagement et
-> Microsoft.Graph.Security). Le label group "NSR2 - Confidentiel" doit donc être créé
-> manuellement avant d'exécuter les scripts ci-dessous : *Purview portal > Information
-> Protection > Sensitivity labels > Create a label*, nom uniquement, aucune autre config
-> (les label groups ne supportent que nom/description/couleur/priorité).
-
-* [Exo 2a : Récupération du label group créé via GUI](./02_Sensitivity_Labels/exo2a-get-label-group.ps1)
-  * Objectif : Documenter la limitation API, récupérer le label group "NSR2 - Confidentiel" et son Guid pour les exos suivants.
-* [Exo 2b : Création d'un sublabel avec chiffrement admin-defined](./02_Sensitivity_Labels/exo2b-create-sublabel-encryption.ps1)
-  * Objectif : Créer le sublabel `NSR2 - Interne` sous le label group, avec chiffrement — permissions définies par l'admin (Co-Owner, Co-Author).
+* [Exo 2a : Création d'un label group et de son premier sublabel](./02_Sensitivity_Labels/exo2a-create-label-group.ps1)
+  * Objectif : Créer le label group `NSR2 - Confidentiel` et son sublabel `NSR2 - Interne` — démonstration que la création de label groups, contrairement à ce que documente Microsoft Learn, est intégralement scriptable via `-AdvancedSettings`.
+* [Exo 2b : Chiffrement admin-defined sur un sublabel](./02_Sensitivity_Labels/exo2b-sublabel-encryption.ps1)
+  * Objectif : Ajouter le chiffrement RMS sur `NSR2 - Interne` — permissions définies par l'admin (Co-Owner, Co-Author).
   * Licence requise : Microsoft Purview Information Protection (inclus E5).
 * [Exo 2c : Création d'un sublabel Do Not Forward](./02_Sensitivity_Labels/exo2c-create-sublabel-dnf.ps1)
   * Objectif : Créer le sublabel `NSR2 - Externe` avec chiffrement Do Not Forward — protection des emails envoyés hors du tenant.
@@ -98,10 +88,13 @@ Get-PSSession | Remove-PSSession
 * [Exo 2f : Audit des labels et policies](./02_Sensitivity_Labels/exo2f-audit-labels.ps1)
   * Objectif : Lister les labels, sublabels, policies de publication et policies d'auto-labeling — état complet de la configuration Information Protection du tenant.
 
-> **Note technique :** Le marquage visuel (watermark, header, footer) qu'on aurait
-> appliqué à un label parent dans l'ancien schéma se configure désormais au niveau
-> sublabel, pas au niveau label group — les label groups sont de purs conteneurs
-> organisationnels sans paramètres de protection ni de contenu.
+> **Note technique :** Un label group n'est pas un objet distinct côté API Purview —
+> c'est un label dont la propriété `islabelgroup` est positionnée à `True` via
+> `-AdvancedSettings`. La propriété `isparent`, elle, n'est PAS settable manuellement :
+> elle est calculée automatiquement par le service dès qu'un sublabel référence ce
+> label comme parent via `-ParentId`. Testé et confirmé par investigation directe
+> (tentatives de force via `-AdvancedSettings` et `Set-Label` post-création, sans
+> succès — la documentation Microsoft Learn sur ce point est ambiguë/incomplète).
 
 <details>
 <summary>Commandes utiles en une ligne — Sensitivity Labels</summary>
@@ -110,8 +103,8 @@ Get-PSSession | Remove-PSSession
 # Lister tous les labels (groups + sublabels)
 Get-Label | Select-Object Name, DisplayName, ParentId | Sort-Object ParentId
 
-# Lister uniquement les label groups (pas de ParentId = soit group, soit label simple)
-Get-Label | Where-Object { -not $_.ParentId } | Select-Object Name, DisplayName
+# Lister uniquement les label groups
+Get-Label | Where-Object { $_.Settings["islabelgroup"] -eq "True" } | Select-Object Name, DisplayName
 
 # Lister les sublabels d'un label group (récupérer le Guid via Get-Label)
 Get-Label | Where-Object { $_.ParentId -eq "guid-du-group" } | Select-Object Name, DisplayName
