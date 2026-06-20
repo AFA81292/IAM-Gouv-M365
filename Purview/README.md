@@ -22,14 +22,20 @@ Connect-ExchangeOnline -UserPrincipalName GeptorAdmin@0n4mg.onmicrosoft.com
 ## Index des Exercices (1 fichier = 1 exo)
 
 ### 01_Data_Classification
-* [Exo 1a : Exploration des SIT built-in](./01_Data_Classification/exo1a-explore-sit-builtin.ps1)
-  * Objectif : Lister les Sensitive Information Types natifs, filtrer par catégorie, afficher le détail d'un SIT cible.
-* [Exo 1b : Création d'un SIT personnalisé par regex](./01_Data_Classification/exo1b-create-custom-sit-regex.ps1)
-  * Objectif : Créer un SIT custom basé sur un pattern regex — numéro de badge interne fictif type `GCORP-XXXXX`.
-* [Exo 1c : Création d'un SIT par Document Fingerprinting](./01_Data_Classification/exo1c-create-sit-fingerprint.ps1)
-  * Objectif : Générer une empreinte documentaire depuis un template RH fictif et l'enregistrer comme SIT.
-* [Exo 1d : Audit des SIT du tenant](./01_Data_Classification/exo1d-audit-sit.ps1)
-  * Objectif : Lister et distinguer les SIT built-in vs custom, vérifier la présence et l'état des SIT créés.
+* [Exo 3a : Vérification de l'état IRM sur le tenant](./03_Message_Encryption/exo3a-check-irm.ps1)
+  * Objectif : Contrôler l'état d'Azure RMS et d'IRM — prérequis indispensable avant tout exercice de chiffrement de messages.
+  * Connexion requise : `Connect-ExchangeOnline`
+* [Exo 3b : Transport Rule OME — Encrypt-Only](./03_Message_Encryption/exo3b-transport-rule-encrypt-only.ps1)
+  * Objectif : Créer une règle de flux qui applique automatiquement le template OME `Encrypt-Only` sur les mails sortants contenant le mot-clé `CONFIDENTIEL`.
+  * Connexion requise : `Connect-ExchangeOnline`
+  * Licence requise : Microsoft Purview Message Encryption (inclus E3/E5)
+* [Exo 3c : Transport Rule OME — Do Not Forward hors tenant](./03_Message_Encryption/exo3c-transport-rule-dnf.ps1)
+  * Objectif : Créer une règle de flux qui applique `Do Not Forward` sur les mails envoyés vers des destinataires extérieurs au tenant.
+  * Connexion requise : `Connect-ExchangeOnline`
+  * Licence requise : Microsoft Purview Message Encryption (inclus E3/E5)
+* [Exo 3d : Audit des Transport Rules liées au chiffrement](./03_Message_Encryption/exo3d-audit-transport-rules.ps1)
+  * Objectif : Lister toutes les Transport Rules du tenant, filtrer celles qui portent une action OME, afficher leur état et leur priorité.
+  * Connexion requise : `Connect-ExchangeOnline`
 
 > **Note technique :** EDM (Exact Data Match) et les Trainable Classifiers ne sont pas couverts en script.
 > EDM nécessite un pipeline d'upload de données sensibles (hash, schéma, fichier source) dont le temps
