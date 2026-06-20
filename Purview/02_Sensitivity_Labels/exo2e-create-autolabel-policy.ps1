@@ -59,10 +59,12 @@ Write-Host "-> Nom retenu : '$PolicyName'`n" -ForegroundColor Green
 # --- ÉTAPE 2 : Création de la policy ---
 Write-Host "2. Création de la policy '$PolicyName'..." -ForegroundColor Cyan
 
-# Mode TestWithoutNotifications, pas TestWithNotifications : ce dernier est documenté
-# par Microsoft Learn comme valeur valide, mais le cmdlet le rejette en pratique
-# (ModeNotSupportedByMipCmdletException), et Set- en aval le refuse aussi explicitement.
-# Valeur fantôme côté PowerShell, accessible uniquement via le portail (GUI).
+# Mode TestWithoutNotifications, pas TestWithNotifications : ce dernier est
+# documenté par Microsoft Learn comme valeur valide pour cette cmdlet, mais en test
+# réel, New-AutoSensitivityLabelPolicy le rejette (ModeNotSupportedByMipCmdletException)
+# — et l'astuce "créer en Test puis basculer via Set-" ne marche pas non plus, le
+# Set- refuse la même valeur. Concrètement, TestWithNotifications n'est aujourd'hui
+# pilotable que depuis le portail Purview, pas en PowerShell.
 try {
     $NewPolicy = New-AutoSensitivityLabelPolicy `
         -Name                $PolicyName `
@@ -175,9 +177,11 @@ Write-Host "Rappel : audit silencieux, rien n'est appliqué. Voir Activity Explo
 #   (puis relancer -StartSimulation $true — Teams non couvert directement, hérite
 #   du backend SharePoint pour les fichiers, hors scope pour le chat)
 
-# Piège testé : Remove-AutoSensitivityLabel* passe l'objet en "PendingDeletion", pas
-# supprimé instantanément (peut durer des heures). Tant que c'est pending, le nom
-# reste pris et une recréation identique échoue — changer de nom plutôt qu'attendre.
+# Piège testé en vrai : Remove-AutoSensitivityLabel* ne supprime pas l'objet tout de
+# suite, il le passe en "PendingDeletion" — ça peut durer des heures. Tant que c'est
+# pending, le nom reste considéré comme pris, donc relancer une création avec le
+# même nom échoue alors que l'objet semble pourtant avoir disparu du portail. Le
+# plus rapide sur un tenant de dev est de changer de nom plutôt que d'attendre.
 
 # --- NETTOYAGE MÉMOIRE ---
 Remove-Variable TargetLabel, LabelCheck, TargetSIT, SITCheck, BasePolicyName, PolicyName, `
