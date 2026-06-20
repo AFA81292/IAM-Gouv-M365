@@ -40,13 +40,14 @@ $CoAuthors = @("liara@0n4mg.onmicrosoft.com", "garrus@0n4mg.onmicrosoft.com")
 # --- ÉTAPE 2 : Application du chiffrement admin-defined ---
 Write-Host "2. Application du chiffrement..." -ForegroundColor Cyan
 
-# Piège à connaître : EncryptionRightsDefinitions n'accepte pas un tableau
-# PowerShell, même si c'est tentant d'essayer. Il veut UNE seule chaîne au format
-# "identite1:droit1,droit2;identite2:droit3,droit4" — d'où le tableau construit
-# puis recollé avec -join ";".
+# Piège à connaître : on pourrait s'attendre à passer un tableau PowerShell à
+# -EncryptionRightsDefinitions, mais il refuse — il veut UNE seule chaîne au format
+# "identite1:droit1,droit2;identite2:droit3,droit4". D'où le tableau qu'on construit
+# normalement plus bas, qu'on recolle ensuite avec -join ";" juste avant l'appel.
 #
 # Autre détail qui piège : le mot-clé valide côté PowerShell est "OWNER", pas
-# "CO-OWNER" (le portail affiche "Co-Owner" mais sous le capot c'est juste OWNER).
+# "CO-OWNER" — le portail Purview affiche "Co-Owner" dans son interface, mais la
+# valeur réellement attendue par la cmdlet est juste OWNER.
 $RightsEntries = @()
 foreach ($Owner in $CoOwners) {
     $RightsEntries += "${Owner}:OWNER"
