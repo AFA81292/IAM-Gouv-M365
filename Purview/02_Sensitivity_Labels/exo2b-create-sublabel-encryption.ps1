@@ -1,23 +1,16 @@
 # ========================================================================================
 # Exercice 2b : Sensitivity Labels — Chiffrement admin-defined sur un sublabel
 # ========================================================================================
-# Concept : Le sublabel "NSR2 - Interne" a été créé en 2a sans chiffrement. On lui
-# ajoute maintenant la couche de protection RMS via Set-Label — étape volontairement
-# séparée de la création pour rester lisible (1 action = 1 étape de script).
+# Concept : Le sublabel "NormandySR2 - Interne" a été créé en 2a sans chiffrement. On lui
+# ajoute la couche de protection RMS via Set-Label.
 #
 # Chiffrement "admin-defined" vs "user-defined" :
-#   - Admin-defined (ce script)  : l'admin fixe les permissions exactes. L'utilisateur
-#     applique le label, les droits sont déjà figés.
-#   - User-defined               : l'utilisateur choisit lui-même les destinataires
-#     au moment d'appliquer le label.
+#   - Admin-defined (ce script) : l'admin fixe les permissions exactes.
+#   - User-defined              : l'utilisateur choisit les destinataires à l'usage.
 #
 # Permissions définies ici :
 #   - Co-Owner (contrôle total) : Shepard
-#   - Co-Author (lecture + modification, pas de réattribution de droits) : Liara, Garrus
-#
-# Cas d'usage réel :
-#   - Documents internes sensibles où on veut garantir QUI peut les ouvrir,
-#     indépendamment du canal de partage (email, SharePoint, clé USB...)
+#   - Co-Author (lecture + modification) : Liara, Garrus
 #
 # Module requis : ExchangeOnlineManagement
 # Connexion : Connect-IPPSSession
@@ -27,18 +20,25 @@
 Get-PSSession | Remove-PSSession
 Connect-IPPSSession -UserPrincipalName GeptorAdmin@0n4mg.onmicrosoft.com -ShowBanner:$false
 
-# --- ÉTAPE 1 : Définition des variables ---
+# --- ÉTAPE 0 : Vérification préalable que le sublabel cible existe ---
+# Évite un Set-Label dans le vide si 2a n'a pas (encore) été exécuté avec succès.
+$SubLabelName = "NormandySR2 - Interne"
+$TargetExists = Get-Label -Identity $SubLabelName -ErrorAction SilentlyContinue
+
+if (-not $TargetExists) {
+    Write-Host "-> ÉCHEC : '$SubLabelName' introuvable. Exécuter l'exo 2a au préalable." -ForegroundColor Red
+    Get-PSSession | Remove-PSSession
+    return
+}
+Write-Host "Sublabel cible confirmé présent — poursuite du script.`n" -ForegroundColor Green
+
+# --- ÉTAPE 1 : Définition des permissions ---
 Write-Host "1. Définition des permissions..." -ForegroundColor Cyan
 
-$SubLabelName = "NSR2 - Interne"
-$CoOwners     = @("shepard@0n4mg.onmicrosoft.com")
-$CoAuthors    = @("liara@0n4mg.onmicrosoft.com", "garrus@0n4mg.onmicrosoft.com")
-
-Write-Host "-> Sublabel cible : $SubLabelName`n" -ForegroundColor Green
+$CoOwners  = @("shepard@0n4mg.onmicrosoft.com")
+$CoAuthors = @("liara@0n4mg.onmicrosoft.com", "garrus@0n4mg.onmicrosoft.com")
 
 # --- ÉTAPE 2 : Application du chiffrement admin-defined ---
-# -EncryptionProtectionType "Template" : chiffrement admin-defined (permissions fixes)
-# -EncryptionRightsDefinitions : format "email:DROITS" séparés par virgule
 Write-Host "2. Application du chiffrement..." -ForegroundColor Cyan
 
 $RightsDefinitions = @()
@@ -58,9 +58,7 @@ try {
         -EncryptionOfflineAccessDays 30 `
         -ErrorAction Stop
 
-    Write-Host "-> Chiffrement appliqué." -ForegroundColor Green
-    Write-Host "-> Co-Owners  : $($CoOwners -join ', ')" -ForegroundColor Green
-    Write-Host "-> Co-Authors : $($CoAuthors -join ', ')`n" -ForegroundColor Green
+    Write-Host "-> Chiffrement appliqué.`n" -ForegroundColor Green
 }
 catch {
     Write-Host "-> Échec application chiffrement : $_" -ForegroundColor Red
@@ -73,21 +71,20 @@ Start-Sleep -Seconds 30
 
 $CheckLabel = Get-Label -Identity $SubLabelName -IncludeDetailedLabelActions
 
-if ($CheckLabel) {
-    Write-Host "-> Sublabel confirmé dans Purview :" -ForegroundColor Green
+if (-not $CheckLabel -or -not $CheckLabel.EncryptionEnabled) {
+    Write-Host "-> ATTENTION : chiffrement non confirmé après vérification." -ForegroundColor Yellow
+} else {
+    Write-Host "-> Sublabel confirmé chiffré :" -ForegroundColor Green
     [PSCustomObject]@{
         Nom                = $CheckLabel.DisplayName
-        ParentId           = $CheckLabel.ParentId
         ChiffrementActif   = [bool]$CheckLabel.EncryptionEnabled
         TypeProtection     = $CheckLabel.EncryptionProtectionType
         OfflineAccessJours = $CheckLabel.EncryptionOfflineAccessDays
     } | Format-List
-} else {
-    Write-Host "-> Sublabel pas encore visible — réplication en cours." -ForegroundColor Yellow
 }
 
 # --- NETTOYAGE MÉMOIRE ---
-Remove-Variable SubLabelName, CoOwners, CoAuthors, RightsDefinitions, `
+Remove-Variable SubLabelName, TargetExists, CoOwners, CoAuthors, RightsDefinitions, `
                 Owner, Author, CheckLabel -ErrorAction SilentlyContinue
 
 # --- FERMETURE ---
