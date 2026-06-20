@@ -89,17 +89,20 @@ catch {
 }
 
 # --- ÉTAPE 4 : Vérification ---
+# IMPORTANT : Get-Label simple ne retourne pas de manière fiable les propriétés
+# de marquage (Footer/Header/Watermark) même quand elles sont actives côté serveur.
+# -IncludeDetailedLabelActions force le retour complet de ces propriétés.
+# Sans ce paramètre, on observe un faux négatif (tout à False alors que c'est actif).
 Write-Host "`n4. Vérification (propagation ~30s)..." -ForegroundColor Cyan
 Start-Sleep -Seconds 30
 
-$CheckLabel = Get-Label -Identity $LabelName
+$CheckLabel = Get-Label -Identity $LabelName -IncludeDetailedLabelActions
 
 if ($CheckLabel) {
     Write-Host "-> Label confirmé dans Purview :" -ForegroundColor Green
     [PSCustomObject]@{
         Nom            = $CheckLabel.DisplayName
         Priority       = $CheckLabel.Priority
-        # Whether-clauses : True/False natif PowerShell pour lisibilité
         Footer         = [bool]$CheckLabel.ApplyContentMarkingFooterEnabled
         Header         = [bool]$CheckLabel.ApplyContentMarkingHeaderEnabled
         Watermark      = [bool]$CheckLabel.ApplyWatermarkingEnabled
