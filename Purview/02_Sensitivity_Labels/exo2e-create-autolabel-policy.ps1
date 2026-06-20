@@ -73,6 +73,16 @@
 #   On cible donc -ExchangeLocation uniquement, pas SharePoint/OneDrive — cohérent avec
 #   l'exo 3 (Message Encryption) qui est également centré Exchange/mail flow.
 #
+#   JUSTIFICATION MÉTIER (au-delà de la consigne) : le SIT visé ici (numéro de badge
+#   interne, cf. 1b) a une nature "communication" plus que "document stocké" — le
+#   risque de fuite le plus probable est un email/transfert contenant une liste ou un
+#   export, pas un fichier au repos sur un site SPO. Cibler Exchange en premier est
+#   donc défendable comme priorisation par risque, pas comme simplification arbitraire.
+#
+#   L'extension à SharePoint/OneDrive (étape logique suivante en mission réelle) est
+#   documentée en détail plus bas dans ce script — voir "ÉTAPE 3 TER" — plutôt que
+#   scriptée ici, pour rester dans le scope précis de l'exercice.
+#
 # Module requis : ExchangeOnlineManagement
 # Connexion : Connect-IPPSSession
 # ========================================================================================
@@ -224,6 +234,37 @@ catch {
     Get-PSSession | Remove-PSSession
     return
 }
+
+# --- ÉTAPE 3 TER (OPTIONNELLE — NON EXÉCUTÉE) : Extension à SharePoint / OneDrive ---
+# Pour rester dans le scope précis de l'exercice (cf. note "Emplacement ciblé" en
+# en-tête), ce script ne couvre qu'Exchange. Mais en mission réelle, après validation
+# de la simulation Exchange sans faux positif majeur, l'étape suivante consisterait à
+# élargir le PÉRIMÈTRE DE LA POLICY (pas de la règle — la règle ContentContains...
+# s'applique automatiquement à tout nouveau workload ajouté à la policy, pas besoin
+# de la recréer).
+#
+# Deux cmdlets Set-AutoSensitivityLabelPolicy à lancer (hors de ce script) :
+#
+#   Set-AutoSensitivityLabelPolicy -Identity $PolicyName -AddSharePointLocation "All"
+#   Set-AutoSensitivityLabelPolicy -Identity $PolicyName -AddOneDriveLocation "All"
+#
+# Points d'attention si on fait cette extension :
+#   - "All" couvre tous les sites SPO / tous les OneDrive du tenant. En prod, on
+#     préfère cibler des URLs précises : -AddSharePointLocation "https://tenant.
+#     sharepoint.com/sites/RH" plutôt que "All", pour limiter le scan à un périmètre
+#     métier identifié (ici, par exemple, les sites RH où des exports de badges
+#     circuleraient).
+#   - Après tout Set-, le même warning qu'à la création réapparaît ("requires
+#     simulation to be restarted") — il faut relancer -StartSimulation $true pour
+#     que l'extension soit prise en compte (cf. étape 3 bis ci-dessous, même logique).
+#   - Teams n'a pas de paramètre dédié sur ce cmdlet. Son contenu fichier est couvert
+#     indirectement via SharePoint (la bibliothèque de documents derrière chaque
+#     équipe Teams est un site SPO classique) ; ses messages de chat ne sont PAS
+#     couverts par l'auto-labeling de sensibilité de cette façon — c'est un terrain
+#     différent (Teams retention/eDiscovery), hors scope ici.
+#   - Vérifier la cmdlet Get-AutoSensitivityLabelPolicy -Identity $PolicyName après
+#     coup : les propriétés SharePointLocation et OneDriveLocation doivent refléter
+#     l'ajout.
 
 # --- ÉTAPE 3 BIS : Démarrage explicite de la simulation ---
 # Purview ne lance PAS automatiquement la simulation à la création de la policy/règle
