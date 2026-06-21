@@ -128,25 +128,41 @@ catch {
 # --- ÉTAPE 6 : Création de la DLP Rule (rattachée à la policy) ---
 Write-Host "6. Création de la DLP Rule..." -ForegroundColor Cyan
 
-$RuleParams = @{
-    Name                              = $RuleName
-    Policy                            = $PolicyName
-    ContentContainsSensitiveInformation = $ClassificationCondition
-    EncryptRMSTemplate                = $Template
+# Le backend DLP (Security & Compliance) ne reconnaît pas toujours le nom de template
+# localisé que Get-RMSTemplate (Exchange Online) a pourtant validé — découvert en testant
+# 'Chiffrer' qui fonctionne pour 3b (ApplyRightsProtectionTemplate) mais pas ici
+# (EncryptRMSTemplate, NoRmsTemplateFoundException). On teste donc plusieurs candidats :
+# d'abord le nom résolu dynamiquement, puis le nom canonique anglais "Encrypt" en repli —
+# c'est la valeur utilisée dans tous les exemples officiels Microsoft, y compris sur des
+# tenants non-anglophones.
+$TemplateCandidates = @($Template)
+if ($TemplateCandidates -notcontains "Encrypt") { $TemplateCandidates += "Encrypt" }
+
+$RuleCreated = $false
+foreach ($CandidateTemplate in $TemplateCandidates) {
+    try {
+        New-DlpComplianceRule -Name $RuleName -Policy $PolicyName `
+            -ContentContainsSensitiveInformation $ClassificationCondition `
+            -EncryptRMSTemplate $CandidateTemplate -ErrorAction Stop | Out-Null
+
+        Write-Host "-> Succès avec le template '$CandidateTemplate'.`n" -ForegroundColor Green
+        $Template = $CandidateTemplate   # on garde trace du nom qui a réellement fonctionné
+        $RuleCreated = $true
+        break
+    }
+    catch {
+        Write-Host "-> Échec avec '$CandidateTemplate' : $($_.Exception.Message)" -ForegroundColor Yellow
+    }
 }
 
-try {
-    New-DlpComplianceRule @RuleParams -ErrorAction Stop | Out-Null
-    Write-Host "-> Succès : règle créée et rattachée à la policy.`n" -ForegroundColor Green
-}
-catch {
-    Write-Host "-> Échec de la création de la règle : $_`n" -ForegroundColor Red
-    # Nettoyage : pas de policy orpheline sans règle si la création de la règle échoue
+if (-not $RuleCreated) {
+    Write-Host "-> ARRÊT : aucun nom de template testé n'a fonctionné pour EncryptRMSTemplate." -ForegroundColor Red
+    Write-Host "   Candidats testés : $($TemplateCandidates -join ', ')" -ForegroundColor Yellow
+    # On nettoie la policy orpheline créée à l'étape 5, sinon elle traîne sans règle.
     Remove-DlpCompliancePolicy -Identity $PolicyName -Confirm:$false -ErrorAction SilentlyContinue
     Get-PSSession | Remove-PSSession
     return
 }
-
 # --- ÉTAPE 7 : Vérification en mode test ---
 Write-Host "7. Vérification de la policy/rule créée..." -ForegroundColor Cyan
 Start-Sleep -Seconds 2
