@@ -269,6 +269,21 @@ Get-PSSession | Remove-PSSession
   * Objectif : Lister l'ensemble des DLP policies, filtrer par mode, afficher les règles associées et leur état — vue d'ensemble de la posture DLP du tenant.
   * Connexion requise : `Connect-IPPSSession`
 
+> **Note technique — pièges de syntaxe sur l'API REST Purview v3 (module >= 3.x) :**
+> Deux erreurs courantes rencontrées lors de la création de règles DLP par script :
+>
+> 1. **Clés de la hashtable SIT en minuscules strictes.** `-ContentContainsSensitiveInformation`
+>    attend un tableau de hashtables avec les clés `name`, `mincount`, `minconfidence` —
+>    tout en minuscules, valeurs numériques passées comme strings (`"1"`, `"75"`).
+>    Les clés PascalCase (`Name`, `MinCount`) documentées sur Microsoft Learn sont rejetées
+>    avec `InvalidContentContainsSensitiveInformationException`.
+>
+> 2. **`-NotifyUser` : `"LastModifier"`, pas `"LastModifiedBy"`.** La documentation
+>    Microsoft Learn indique `"LastModifiedBy"` — la valeur réellement acceptée par
+>    l'API REST v3 est `"LastModifier"` (sans "By"). L'erreur retournée est
+>    `InvalidSmtpAddressInNotifyUserActionException` avec la liste des valeurs valides :
+>    `Owner`, `LastModifier`, `SiteAdmin`, ou une adresse SMTP explicite.
+
 > **Note technique — Endpoint DLP et Adaptive Protection :**
 > Ces deux fonctionnalités sont couvertes en cours (sections 6 et 5 du SC-401) mais
 > ne sont pas scriptables de manière utile sur un tenant dev sans infrastructure.
@@ -335,5 +350,4 @@ Get-PSSession | Remove-PSSession
 </details>
 
 ---
-
 
