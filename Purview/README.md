@@ -128,6 +128,7 @@ Get-PSSession | Remove-PSSession
 </details>
 
 ---
+
 ### 03_Message_Encryption
 * [Exo 3a : Vérification de l'état IRM sur le tenant](./03_Message_Encryption/exo3a-check-irm.ps1)
   * Objectif : Contrôler l'état d'Azure RMS et d'IRM — prérequis indispensable avant tout exercice de chiffrement de messages.
@@ -237,17 +238,11 @@ Remove-TransportRule -Identity "Nom-de-la-rule" -Confirm:$false
 
 # Fermer proprement toutes les sessions (Exchange Online ET Security & Compliance)
 Get-PSSession | Remove-PSSession
-
-
-
-
 ```
 
 </details>
 
-
 ---
-
 
 ### 04_DLP
 * [Exo 4a : DLP policy simple — protection numéros de CB](./04_DLP/exo4a-dlp-policy-credit-card.ps1)
@@ -263,7 +258,7 @@ Get-PSSession | Remove-PSSession
   * Connexion requise : `Connect-IPPSSession`
   * Licence requise : Microsoft Purview DLP + Microsoft Purview Information Protection (inclus E5)
 * [Exo 4d : Cycle de vie d'une DLP policy](./04_DLP/exo4d-dlp-policy-lifecycle.ps1)
-  * Objectif : Passer la policy créée en 4a de `TestWithNotifications` à `Enable` (enforcement réel), puis la repasser en `Test` — démonstration du workflow de mise en production d'une DLP policy sans recréation.
+  * Objectif : Démontrer le cycle `TestWithNotifications` → `Enable` (enforcement réel) → retour `Test`, sur une policy dédiée et autoportée (`DLP-Cerberus-LifecycleDemo`) — ne dépend pas de l'état laissé par 4a/4b/4c, donc rejouable indépendamment.
   * Connexion requise : `Connect-IPPSSession`
 * [Exo 4e : Audit des DLP policies du tenant](./04_DLP/exo4e-audit-dlp.ps1)
   * Objectif : Lister l'ensemble des DLP policies, filtrer par mode, afficher les règles associées et leur état — vue d'ensemble de la posture DLP du tenant.
@@ -283,6 +278,27 @@ Get-PSSession | Remove-PSSession
 >    l'API REST v3 est `"LastModifier"` (sans "By"). L'erreur retournée est
 >    `InvalidSmtpAddressInNotifyUserActionException` avec la liste des valeurs valides :
 >    `Owner`, `LastModifier`, `SiteAdmin`, ou une adresse SMTP explicite.
+
+> **Note technique — piège `-AdvancedRule` pour une condition basée sur un label (exo 4c) :**
+> Il n'existe **pas** de paramètre `-ContentContainsSensitiveLabel` sur `New-DlpComplianceRule`
+> — première erreur rencontrée, un nom halluciné par analogie avec `-ContentContainsSensitiveInformation`
+> (qui, lui, existe mais seulement pour une condition SIT simple à une valeur). Dès qu'on veut une
+> logique de groupe (plusieurs labels en OR), il faut passer par `-AdvancedRule` en JSON brut, avec
+> chaque label déclaré comme `{name = "<GUID>"; type = "Sensitivity"}` dans un bloc
+> `Condition.SubConditions[].Value[].groups[].labels[]`.
+>
+> Deuxième piège, une fois le JSON de base fonctionnel : `-BlockAccess` combiné à un blocage externe
+> (`BlockAccessScope PerUser`) **rejette la règle à la création** si `-AccessScope NotInOrganization`
+> est passé en paramètre séparé du cmdlet. Le moteur DLP exige que cette condition soit elle-même
+> encodée **dans** le JSON, comme un second `SubConditions` au même niveau que le bloc labels,
+> relié par `Operator: "And"` — pas en paramètre externe. Message d'erreur obtenu :
+> `"you must have 'Content is shared with people outside your organization' as the first condition
+> along with operator 'AND' with other conditions or groups in your rule"`.
+>
+> Conséquence pratique : dès qu'une condition DLP combine plusieurs critères avec une logique
+> explicite (labels en OR, label + accès externe en AND, exceptions), réflexe direct vers
+> `-AdvancedRule` + hashtable PowerShell + `ConvertTo-Json -Depth 100` — ne jamais chercher de
+> paramètre nommé "intuitivement" pour ce niveau de complexité.
 
 > **Note technique — Endpoint DLP et Adaptive Protection :**
 > Ces deux fonctionnalités sont couvertes en cours (sections 6 et 5 du SC-401) mais
@@ -320,6 +336,10 @@ Get-DlpCompliancePolicy | Where-Object { $_.Mode -like "Test*" } | Select-Object
 # Lister les règles d'une policy spécifique
 Get-DlpComplianceRule -Policy "Nom-de-la-policy" | Select-Object Name, Disabled, BlockAccess
 
+# Inspecter le JSON brut d'une règle complexe (AdvancedRule) — utile pour relire
+# la logique d'une condition label/groupe sans repasser par le script qui l'a créée
+Get-DlpComplianceRule -Identity "Nom-de-la-règle" | Select-Object -ExpandProperty AdvancedRule
+
 # Lister toutes les règles de toutes les policies (vue globale)
 Get-DlpCompliancePolicy | ForEach-Object {
     $PolicyName = $_.Name
@@ -351,3 +371,104 @@ Get-PSSession | Remove-PSSession
 
 ---
 
+### 05_Retention
+* [Exo 5a : Retention Label simple](./05_Retention/exo5a-retention-label-simple.ps1)
+  * Objectif : Créer un Retention Label `RET-Citadel-3ans-Modification` — rétention 3 ans calculée depuis la dernière modification, sans disposition review à l'expiration (suppression silencieuse).
+  * Connexion requise : `Connect-IPPSSession`
+  * Licence requise : Microsoft Purview Records Management (inclus E5)
+* [Exo 5b : Retention Label avec disposition review](./05_Retention/exo5b-retention-label-review.ps1)
+  * Objectif : Créer un Retention Label `RET-Citadel-7ans-Creation-Review` — rétention 7 ans depuis la création, avec disposition review à l'expiration : un réviseur humain valide la suppression au lieu qu'elle soit automatique.
+  * Connexion requise : `Connect-IPPSSession`
+  * Licence requise : Microsoft Purview Records Management (inclus E5)
+* [Exo 5c : Publication des labels via une Label Policy](./05_Retention/exo5c-publish-retention-policy.ps1)
+  * Objectif : Publier les deux labels de rétention (5a, 5b) vers Exchange et SharePoint via une Retention Label Policy — sans publication, un label de rétention créé reste invisible des utilisateurs.
+  * Connexion requise : `Connect-IPPSSession`
+* [Exo 5d : Adaptive Scope par attribut département](./05_Retention/exo5d-adaptive-scope-department.ps1)
+  * Objectif : Créer un Adaptive Scope ciblant dynamiquement les utilisateurs dont `Department -eq "Legal"` — la portée se recalcule automatiquement si des utilisateurs changent de département, contrairement à un scope statique figé à la création.
+  * Connexion requise : `Connect-IPPSSession`
+* [Exo 5e : Retention Policy statique](./05_Retention/exo5e-retention-policy-static.ps1)
+  * Objectif : Créer une Retention Policy `RET-POL-Citadel-Static` — rétention 1 an sur Exchange et Teams, scope figé à la création (tous les utilisateurs/sites inclus, pas de logique dynamique).
+  * Connexion requise : `Connect-IPPSSession`
+* [Exo 5f : Retention Policy avec Adaptive Scope](./05_Retention/exo5f-retention-policy-adaptive.ps1)
+  * Objectif : Créer une seconde Retention Policy, cette fois rattachée à l'Adaptive Scope créé en 5d — démonstration du couplage scope dynamique / policy de rétention, utile pour des périmètres qui évoluent (effectifs, réorganisations) sans intervention manuelle.
+  * Connexion requise : `Connect-IPPSSession`
+* [Exo 5g : Audit des labels et policies de rétention](./05_Retention/exo5g-audit-retention.ps1)
+  * Objectif : Lister les Retention Labels, Retention Label Policies, Retention Policies (statiques et adaptive), et leur état de distribution — vue d'ensemble de la posture de rétention du tenant.
+  * Connexion requise : `Connect-IPPSSession`
+
+> **Note technique — trois objets à ne pas confondre :**
+> 1. **Retention Label** : l'étiquette elle-même (`New-ComplianceTag`). Définit la durée, le point
+>    de départ (création/modification/étiquetage/événement), et le comportement à expiration
+>    (suppression, review, ou rien). Un label seul n'a **aucun effet** tant qu'il n'est pas publié.
+> 2. **Retention Label Policy** (`New-RetentionCompliancePolicy` + `-RetentionRuleType`) : publie
+>    un ou plusieurs labels vers des emplacements (Exchange, SharePoint...) pour les rendre
+>    sélectionnables par les utilisateurs ou par de l'auto-application. C'est un mécanisme de
+>    **diffusion**, pas de rétention en soi.
+> 3. **Retention Policy** (`New-RetentionCompliancePolicy` sans label associé + `New-RetentionComplianceRule`) :
+>    applique une règle de rétention **directement** sur un périmètre (mailboxes, sites), sans
+>    passer par un label sélectionnable par l'utilisateur — rétention "de fond", invisible,
+>    appliquée à tout le contenu du périmètre.
+>
+> Les trois partagent la même cmdlet racine `New-RetentionCompliancePolicy`, ce qui prête à
+> confusion : c'est le paramètre `-RetentionRuleType` (`ComplianceTagRetention` vs `RetentionPolicy`
+> implicite selon `-Type`) et la présence ou non de `New-RetentionComplianceRule` qui distinguent
+> "publier un label" de "appliquer une rétention de fond".
+
+> **Note technique — précédence en cas de policies en conflit :**
+> Si plusieurs Retention Policies (5e statique + 5f adaptive) ou Retention Label Policies
+> s'appliquent au même contenu avec des durées différentes, Purview suit des règles de
+> précédence fixes : rétention la plus longue l'emporte sur suppression automatique,
+> "ne pas supprimer" l'emporte sur "supprimer", explicite (label appliqué manuellement)
+> l'emporte sur implicite (policy de fond). `Get-ComplianceTag -Identity "Nom" | Format-List`
+> et le **Policy Lookup** du portail Purview (Records Management > Policy lookup) permettent
+> de vérifier concrètement quelle règle s'applique à un élément donné, plutôt que de déduire
+> la précédence en théorie — exo couvert par le cours mais non scriptable (Policy Lookup est
+> 100% GUI, aucune cmdlet n'expose cette résolution).
+
+<details>
+<summary>Commandes utiles en une ligne — Retention</summary>
+
+```powershell
+# Lister tous les Retention Labels du tenant
+Get-ComplianceTag | Select-Object Name, RetentionDuration, RetentionAction, RetentionType
+
+# Afficher le détail complet d'un Retention Label
+Get-ComplianceTag -Identity "Nom-du-label" | Format-List
+
+# Lister les Retention Label Policies (labels publiés)
+Get-RetentionCompliancePolicy | Where-Object { $_.RetentionRuleTypes -contains "ComplianceTagRetention" } |
+    Select-Object Name, ExchangeLocation, SharePointLocation
+
+# Lister les Retention Policies "de fond" (sans label, scope direct)
+Get-RetentionCompliancePolicy | Where-Object { $_.RetentionRuleTypes -notcontains "ComplianceTagRetention" } |
+    Select-Object Name, ExchangeLocation, SharePointLocation
+
+# Lister les règles de rétention associées à une policy
+Get-RetentionComplianceRule -Policy "Nom-de-la-policy" | Select-Object Name, RetentionDuration, RetentionComplianceAction
+
+# Lister tous les Adaptive Scopes
+Get-AdaptiveScope | Select-Object Name, AdaptiveScopeLocation
+
+# Afficher le détail d'un Adaptive Scope (règle de filtrage dynamique)
+Get-AdaptiveScope -Identity "Nom-du-scope" | Format-List
+
+# Vérifier l'état de distribution d'une policy (propagation vers les emplacements)
+Get-RetentionCompliancePolicy -Identity "Nom-de-la-policy" | Select-Object Name, DistributionStatus
+
+# Supprimer une règle PUIS sa policy (ordre obligatoire)
+Remove-RetentionComplianceRule -Identity "Nom-de-la-règle" -Confirm:$false
+Remove-RetentionCompliancePolicy -Identity "Nom-de-la-policy" -Confirm:$false
+
+# Supprimer un Retention Label (le retirer de toute policy de publication avant)
+Remove-ComplianceTag -Identity "Nom-du-label" -Confirm:$false
+
+# Supprimer un Adaptive Scope
+Remove-AdaptiveScope -Identity "Nom-du-scope" -Confirm:$false
+
+# Fermer proprement toutes les sessions
+Get-PSSession | Remove-PSSession
+```
+
+</details>
+
+---
