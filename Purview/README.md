@@ -136,7 +136,7 @@ Get-PSSession | Remove-PSSession
   * Objectif : Créer une règle de flux qui applique automatiquement le template de chiffrement simple (résolu dynamiquement — `Chiffrer`/`Encrypt` selon la langue du tenant, pas un nom en dur) sur les mails sortants contenant le mot-clé `CONFIDENTIEL`.
   * Connexion requise : `Connect-ExchangeOnline`
   * Licence requise : Microsoft Purview Message Encryption (inclus E3/E5)
-* [Exo 3c : DLP Compliance Rule — chiffrement par classification (SIT)](./03_Message_Encryption/exo3c-dlp-rule-classification-encrypt.ps1)
+* [Exo 3c : DLP Compliance Rule — chiffrement par classification (SIT)](./03_Message_Encryption/exo3c-transport-rule-classification.ps1)
   * Objectif : Appliquer le même chiffrement que 3b, mais déclenché par la détection du SIT custom `Cerberus Corp - Numéro de Badge Interne` (créé en 1b) via une **DLP Compliance Rule** (`EncryptRMSTemplate`) — `MessageContainsDataClassifications` est déprécié côté Transport Rules depuis fin 2023, ce mécanisme est l'alternative supportée.
   * Connexion requise : `Connect-IPPSSession` (création de la policy/rule, vérification du SIT — cœur du script) **et** `Connect-ExchangeOnline` (uniquement pour résoudre le nom du template via `Get-RMSTemplate`)
   * Licence requise : Microsoft Purview Message Encryption (inclus E3/E5)
