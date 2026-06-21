@@ -239,9 +239,15 @@ Remove-TransportRule -Identity "Nom-de-la-rule" -Confirm:$false
 Get-PSSession | Remove-PSSession
 
 
-</details>
+
 
 ```
+
+</details>
+
+
+---
+
 
 ### 04_DLP
 * [Exo 4a : DLP policy simple — protection numéros de CB](./04_DLP/exo4a-dlp-policy-credit-card.ps1)
