@@ -10,11 +10,17 @@
 # New-AppRetentionCompliancePolicy (utilisée en 5e pour Teams) : -AdaptiveScopeLocation
 # existe dans les DEUX familles de cmdlets, dans un parameter set "AdaptiveScopeLocation"
 # séparé. Pour cibler Exchange via un scope adaptatif, pas besoin de la nouvelle
-# architecture — confirmé par un exemple réel publié (Practical365, scope "Legal Matter")
-# utilisant New-RetentionCompliancePolicy -AdaptiveScopeLocation $scopeName telle quelle,
-# pas la cmdlet App. La bascule vers AppRetention ne s'imposait en 5e que parce que Teams
-# lui-même n'est plus géré par l'ancienne cmdlet — un problème de LOCATION (Teams),
-# pas de TYPE de scope (statique vs adaptatif).
+# architecture — la bascule vers AppRetention ne s'imposait en 5e que parce que Teams
+# lui-même n'est plus géré par l'ancienne cmdlet (problème de LOCATION, pas de TYPE
+# de scope statique vs adaptatif).
+#
+# Piège réel rencontré : -Applications est obligatoire avec un scope adaptatif (sinon
+# "MissingApplicationsLocationTypeForAdaptiveScopeException"), et son préfixe DOIT
+# correspondre exactement au -LocationType du scope ciblé — "User:" si le scope est
+# LocationType "User" (cas de 5d), "Group:" si LocationType "Group". Ce n'est pas un
+# choix de syntaxe libre : passer "Group:Exchange" sur un scope "User" échoue avec
+# "adaptive scope of location type 'User', but no applications were specified for the
+# same location type" — le message identifie précisément le mismatch.
 #
 # -AdaptiveScopeLocation est dans son propre parameter set, incompatible avec
 # -ExchangeLocation "All" dans le même appel (logique : soit le scope est figé "All",
@@ -76,12 +82,20 @@ while (Get-RetentionComplianceRule -Identity $RuleName -ErrorAction SilentlyCont
 Write-Host "-> Policy : '$PolicyName' / Règle : '$RuleName'`n" -ForegroundColor Green
 
 # --- ÉTAPE 3 : Création de la policy (scope adaptatif, pas "All") ---
+#
+# CORRECTIF POST-DEBUG : -Applications "Group:Exchange" a échoué avec
+# "Policy locations contain adaptive scope of location type 'User', but no applications
+# were specified for the same location type" — le préfixe de -Applications ("User:" ou
+# "Group:") doit correspondre EXACTEMENT au -LocationType du scope adaptatif ciblé, pas
+# être choisi indépendamment. Le scope 5d a été créé avec -LocationType "User" (cf. 5d),
+# donc -Applications doit utiliser le préfixe "User:", pas "Group:" (qui visait un
+# exemple externe basé sur un scope SharePoint, de LocationType différent).
 try {
     $NewPolicy = New-RetentionCompliancePolicy `
-        -Name                 $PolicyName `
+        -Name                  $PolicyName `
         -AdaptiveScopeLocation $ScopeName `
-        -Applications         "Group:Exchange" `
-        -Comment              "Exo 5f — Rétention 1 an, scope adaptatif département Legal." `
+        -Applications          "User:Exchange" `
+        -Comment               "Exo 5f — Rétention 1 an, scope adaptatif département Legal." `
         -ErrorAction Stop
 
     Write-Host "3. Policy créée : $($NewPolicy.Name)`n" -ForegroundColor Green
