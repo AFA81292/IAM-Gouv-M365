@@ -31,11 +31,16 @@ Connect-ExchangeOnline -UserPrincipalName GeptorAdmin@0n4mg.onmicrosoft.com
 * [Exo 1d : Audit des SIT du tenant](./01_Data_Classification/exo1d-audit-sit.ps1)
   * Objectif : Lister et distinguer les SIT built-in vs custom, vérifier la présence et l'état des SIT créés.
 
-> **Note technique :** EDM (Exact Data Match) et les Trainable Classifiers ne sont pas couverts en script.
-> EDM nécessite un pipeline d'upload de données sensibles (hash, schéma, fichier source) dont le temps
-> de propagation dépasse plusieurs heures et dont la surface PowerShell est essentiellement un wrapper
-> autour d'appels Graph non documentés publiquement. Les Trainable Classifiers sont intégralement GUI —
-> aucune cmdlet de création n'est exposée. Ces deux fonctionnalités sont gérées via le portail Purview.
+<details>
+<summary>Note technique — EDM et Trainable Classifiers non couverts en script</summary>
+
+EDM (Exact Data Match) et les Trainable Classifiers ne sont pas couverts en script.
+EDM nécessite un pipeline d'upload de données sensibles (hash, schéma, fichier source) dont le temps
+de propagation dépasse plusieurs heures et dont la surface PowerShell est essentiellement un wrapper
+autour d'appels Graph non documentés publiquement. Les Trainable Classifiers sont intégralement GUI —
+aucune cmdlet de création n'est exposée. Ces deux fonctionnalités sont gérées via le portail Purview.
+
+</details>
 
 <details>
 <summary>Commandes utiles en une ligne — Data Classification</summary>
@@ -88,13 +93,18 @@ Get-PSSession | Remove-PSSession
 * [Exo 2f : Audit des labels et policies](./02_Sensitivity_Labels/exo2f-audit-labels.ps1)
   * Objectif : Lister les labels, sublabels, policies de publication et policies d'auto-labeling — état complet de la configuration Information Protection du tenant.
 
-> **Note technique :** Un label group n'est pas un objet distinct côté API Purview —
-> c'est un label dont la propriété `islabelgroup` est positionnée à `True` via
-> `-AdvancedSettings`. La propriété `isparent`, elle, n'est PAS settable manuellement :
-> elle est calculée automatiquement par le service dès qu'un sublabel référence ce
-> label comme parent via `-ParentId`. Testé et confirmé par investigation directe
-> (tentatives de force via `-AdvancedSettings` et `Set-Label` post-création, sans
-> succès — la documentation Microsoft Learn sur ce point est ambiguë/incomplète).
+<details>
+<summary>Note technique — label group, islabelgroup vs isparent</summary>
+
+Un label group n'est pas un objet distinct côté API Purview —
+c'est un label dont la propriété `islabelgroup` est positionnée à `True` via
+`-AdvancedSettings`. La propriété `isparent`, elle, n'est PAS settable manuellement :
+elle est calculée automatiquement par le service dès qu'un sublabel référence ce
+label comme parent via `-ParentId`. Testé et confirmé par investigation directe
+(tentatives de force via `-AdvancedSettings` et `Set-Label` post-création, sans
+succès — la documentation Microsoft Learn sur ce point est ambiguë/incomplète).
+
+</details>
 
 <details>
 <summary>Commandes utiles en une ligne — Sensitivity Labels</summary>
@@ -149,47 +159,59 @@ Get-PSSession | Remove-PSSession
   * Objectif : Lister les Transport Rules (3b, 3d) **et** les DLP Compliance Rules (3c) du tenant, filtrer celles qui portent une action de chiffrement, afficher leur état et leur priorité — deux types d'objets distincts à interroger séparément depuis la dépréciation décrite ci-dessous.
   * Connexion requise : `Connect-ExchangeOnline` **et** `Connect-IPPSSession`
 
-> **Note technique — trois pièges d'architecture rencontrés sur ce chapitre :**
-> 1. **Noms de templates localisés.** `Get-RMSTemplate` retourne des noms selon la langue
->    du tenant (`Chiffrer`/`Ne pas transférer` en FR, pas `Encrypt`/`Do Not Forward`). Les
->    scripts résolvent le nom dynamiquement (filtre EN+FR) plutôt que de le fixer en dur.
-> 2. **`MessageContainsDataClassifications` est déprécié dans les Transport Rules** depuis
->    novembre 2023 (aka.ms/NoDLPinETRs). Le chiffrement déclenché par SIT (3c) utilise donc
->    une **DLP Compliance Rule** (`EncryptRMSTemplate`), pas une Transport Rule — objet
->    différent, à interroger séparément en audit (3e).
-> 3. **Le backend DLP n'accepte pas toujours le nom localisé** que `Get-RMSTemplate`
->    (Exchange Online) a pourtant validé — `EncryptRMSTemplate` semble attendre le nom
->    canonique anglais (`Encrypt`) même sur un tenant FR. 3c teste plusieurs candidats
->    avant d'abandonner plutôt que de fixer une seule valeur supposée.
->
-> Conséquence pratique : ce chapitre combine deux surfaces de cmdlets — Exchange Online
-> (Transport Rules, résolution de template) et Security & Compliance (SIT, DLP Rules).
-> `Connect-IPPSSession` et `Connect-ExchangeOnline` sont tous les deux nécessaires dès
-> qu'un exo touche les deux mondes (cas de 3c).
+<details>
+<summary>Note technique — trois pièges d'architecture rencontrés sur ce chapitre</summary>
 
-> **Note technique — Advanced Message Encryption (AME) :**
-> AME ajoute deux capacités au-dessus de l'OME standard : le **branding personnalisé** du portail
-> de lecture (logo, couleurs, message d'accueil) et la **révocation de message** — possibilité de
-> couper l'accès à un mail déjà envoyé, à condition que le destinataire le lise via le portail web OME
-> (pas via un client Outlook natif qui aurait déchiffré le message localement).
->
-> En production, AME est pertinent dans deux scénarios : communications client avec charte graphique
-> imposée (secteur bancaire, juridique) et gestion de crise post-envoi (mauvais destinataire,
-> fuite de données — on révoque l'accès avant que le mail soit lu).
->
-> AME nécessite une licence **E5 ou l'add-on Microsoft Purview Message Encryption**. Les cmdlets
-> existent (`New-OMEConfiguration`, `Set-OMEConfiguration`) mais le résultat n'est vérifiable
-> qu'en envoyant un vrai mail et en inspectant le portail de lecture — hors périmètre d'un
-> exercice PowerShell autonome sur tenant dev. Configuration via :
-> **Exchange Admin Center > Mail flow > Message encryption**.
+1. **Noms de templates localisés.** `Get-RMSTemplate` retourne des noms selon la langue
+   du tenant (`Chiffrer`/`Ne pas transférer` en FR, pas `Encrypt`/`Do Not Forward`). Les
+   scripts résolvent le nom dynamiquement (filtre EN+FR) plutôt que de le fixer en dur.
+2. **`MessageContainsDataClassifications` est déprécié dans les Transport Rules** depuis
+   novembre 2023 (aka.ms/NoDLPinETRs). Le chiffrement déclenché par SIT (3c) utilise donc
+   une **DLP Compliance Rule** (`EncryptRMSTemplate`), pas une Transport Rule — objet
+   différent, à interroger séparément en audit (3e).
+3. **Le backend DLP n'accepte pas toujours le nom localisé** que `Get-RMSTemplate`
+   (Exchange Online) a pourtant validé — `EncryptRMSTemplate` semble attendre le nom
+   canonique anglais (`Encrypt`) même sur un tenant FR. 3c teste plusieurs candidats
+   avant d'abandonner plutôt que de fixer une seule valeur supposée.
 
-> **Note technique — chevauchement label / DLP rule sur un même SIT :**
-> Le SIT `Cerberus Corp - Numéro de Badge Interne` (créé en 1b) déclenche désormais deux
-> mécanismes indépendants : l'auto-labeling de l'exo 2e (qui applique un label potentiellement
-> chiffrant) et la DLP Compliance Rule de l'exo 3c (qui applique un template RMS directement).
-> Les deux peuvent s'exécuter sur le même message. Ce n'est pas un défaut de configuration —
-> c'est un point réel de précédence à connaître en environnement de production, documenté ici
-> plutôt que découvert en audit.
+Conséquence pratique : ce chapitre combine deux surfaces de cmdlets — Exchange Online
+(Transport Rules, résolution de template) et Security & Compliance (SIT, DLP Rules).
+`Connect-IPPSSession` et `Connect-ExchangeOnline` sont tous les deux nécessaires dès
+qu'un exo touche les deux mondes (cas de 3c).
+
+</details>
+
+<details>
+<summary>Note technique — Advanced Message Encryption (AME)</summary>
+
+AME ajoute deux capacités au-dessus de l'OME standard : le **branding personnalisé** du portail
+de lecture (logo, couleurs, message d'accueil) et la **révocation de message** — possibilité de
+couper l'accès à un mail déjà envoyé, à condition que le destinataire le lise via le portail web OME
+(pas via un client Outlook natif qui aurait déchiffré le message localement).
+
+En production, AME est pertinent dans deux scénarios : communications client avec charte graphique
+imposée (secteur bancaire, juridique) et gestion de crise post-envoi (mauvais destinataire,
+fuite de données — on révoque l'accès avant que le mail soit lu).
+
+AME nécessite une licence **E5 ou l'add-on Microsoft Purview Message Encryption**. Les cmdlets
+existent (`New-OMEConfiguration`, `Set-OMEConfiguration`) mais le résultat n'est vérifiable
+qu'en envoyant un vrai mail et en inspectant le portail de lecture — hors périmètre d'un
+exercice PowerShell autonome sur tenant dev. Configuration via :
+**Exchange Admin Center > Mail flow > Message encryption**.
+
+</details>
+
+<details>
+<summary>Note technique — chevauchement label / DLP rule sur un même SIT</summary>
+
+Le SIT `Cerberus Corp - Numéro de Badge Interne` (créé en 1b) déclenche désormais deux
+mécanismes indépendants : l'auto-labeling de l'exo 2e (qui applique un label potentiellement
+chiffrant) et la DLP Compliance Rule de l'exo 3c (qui applique un template RMS directement).
+Les deux peuvent s'exécuter sur le même message. Ce n'est pas un défaut de configuration —
+c'est un point réel de précédence à connaître en environnement de production, documenté ici
+plutôt que découvert en audit.
+
+</details>
 
 <details>
 <summary>Commandes utiles en une ligne — Message Encryption</summary>
@@ -264,61 +286,73 @@ Get-PSSession | Remove-PSSession
   * Objectif : Lister l'ensemble des DLP policies, filtrer par mode, afficher les règles associées et leur état — vue d'ensemble de la posture DLP du tenant.
   * Connexion requise : `Connect-IPPSSession`
 
-> **Note technique — pièges de syntaxe sur l'API REST Purview v3 (module >= 3.x) :**
-> Deux erreurs courantes rencontrées lors de la création de règles DLP par script :
->
-> 1. **Clés de la hashtable SIT en minuscules strictes.** `-ContentContainsSensitiveInformation`
->    attend un tableau de hashtables avec les clés `name`, `mincount`, `minconfidence` —
->    tout en minuscules, valeurs numériques passées comme strings (`"1"`, `"75"`).
->    Les clés PascalCase (`Name`, `MinCount`) documentées sur Microsoft Learn sont rejetées
->    avec `InvalidContentContainsSensitiveInformationException`.
->
-> 2. **`-NotifyUser` : `"LastModifier"`, pas `"LastModifiedBy"`.** La documentation
->    Microsoft Learn indique `"LastModifiedBy"` — la valeur réellement acceptée par
->    l'API REST v3 est `"LastModifier"` (sans "By"). L'erreur retournée est
->    `InvalidSmtpAddressInNotifyUserActionException` avec la liste des valeurs valides :
->    `Owner`, `LastModifier`, `SiteAdmin`, ou une adresse SMTP explicite.
+<details>
+<summary>Note technique — pièges de syntaxe sur l'API REST Purview v3 (module >= 3.x)</summary>
 
-> **Note technique — piège `-AdvancedRule` pour une condition basée sur un label (exo 4c) :**
-> Il n'existe **pas** de paramètre `-ContentContainsSensitiveLabel` sur `New-DlpComplianceRule`
-> — première erreur rencontrée, un nom halluciné par analogie avec `-ContentContainsSensitiveInformation`
-> (qui, lui, existe mais seulement pour une condition SIT simple à une valeur). Dès qu'on veut une
-> logique de groupe (plusieurs labels en OR), il faut passer par `-AdvancedRule` en JSON brut, avec
-> chaque label déclaré comme `{name = "<GUID>"; type = "Sensitivity"}` dans un bloc
-> `Condition.SubConditions[].Value[].groups[].labels[]`.
->
-> Deuxième piège, une fois le JSON de base fonctionnel : `-BlockAccess` combiné à un blocage externe
-> (`BlockAccessScope PerUser`) **rejette la règle à la création** si `-AccessScope NotInOrganization`
-> est passé en paramètre séparé du cmdlet. Le moteur DLP exige que cette condition soit elle-même
-> encodée **dans** le JSON, comme un second `SubConditions` au même niveau que le bloc labels,
-> relié par `Operator: "And"` — pas en paramètre externe. Message d'erreur obtenu :
-> `"you must have 'Content is shared with people outside your organization' as the first condition
-> along with operator 'AND' with other conditions or groups in your rule"`.
->
-> Conséquence pratique : dès qu'une condition DLP combine plusieurs critères avec une logique
-> explicite (labels en OR, label + accès externe en AND, exceptions), réflexe direct vers
-> `-AdvancedRule` + hashtable PowerShell + `ConvertTo-Json -Depth 100` — ne jamais chercher de
-> paramètre nommé "intuitivement" pour ce niveau de complexité.
+Deux erreurs courantes rencontrées lors de la création de règles DLP par script :
 
-> **Note technique — Endpoint DLP et Adaptive Protection :**
-> Ces deux fonctionnalités sont couvertes en cours (sections 6 et 5 du SC-401) mais
-> ne sont pas scriptables de manière utile sur un tenant dev sans infrastructure.
->
-> **Endpoint DLP** nécessite des devices Windows 10/11 onboardés dans Microsoft Defender
-> for Endpoint (MDE). Sans machine enrôlée dans MDE, les policies Endpoint DLP sont
-> créables via PowerShell (`DeviceDlpRestrictions` comme workload) mais ne déclenchent
-> rien — aucune activité endpoint à surveiller. Sur un tenant dev sans VM jointe au
-> domaine et onboardée dans MDE, l'exercice se résume à créer un objet vide.
-> Configuration et monitoring : **Microsoft Purview portal > Data loss prevention >
-> Endpoint DLP settings**.
->
-> **Adaptive Protection** couple DLP et Insider Risk Management — le niveau de risque
-> d'un utilisateur (calculé par IRM) fait varier dynamiquement les règles DLP qui
-> s'appliquent à lui. Requires : licence E5 Compliance ou E5 Security + au moins une
-> politique IRM active avec des alertes. Sans utilisateurs réels générant des signaux
-> de risque (exfiltration, téléchargement massif, etc.), la fonctionnalité reste
-> théorique. Configuration : **Microsoft Purview portal > Insider Risk Management >
-> Adaptive Protection**.
+1. **Clés de la hashtable SIT en minuscules strictes.** `-ContentContainsSensitiveInformation`
+   attend un tableau de hashtables avec les clés `name`, `mincount`, `minconfidence` —
+   tout en minuscules, valeurs numériques passées comme strings (`"1"`, `"75"`).
+   Les clés PascalCase (`Name`, `MinCount`) documentées sur Microsoft Learn sont rejetées
+   avec `InvalidContentContainsSensitiveInformationException`.
+
+2. **`-NotifyUser` : `"LastModifier"`, pas `"LastModifiedBy"`.** La documentation
+   Microsoft Learn indique `"LastModifiedBy"` — la valeur réellement acceptée par
+   l'API REST v3 est `"LastModifier"` (sans "By"). L'erreur retournée est
+   `InvalidSmtpAddressInNotifyUserActionException` avec la liste des valeurs valides :
+   `Owner`, `LastModifier`, `SiteAdmin`, ou une adresse SMTP explicite.
+
+</details>
+
+<details>
+<summary>Note technique — piège -AdvancedRule pour une condition basée sur un label (exo 4c)</summary>
+
+Il n'existe **pas** de paramètre `-ContentContainsSensitiveLabel` sur `New-DlpComplianceRule`
+— première erreur rencontrée, un nom halluciné par analogie avec `-ContentContainsSensitiveInformation`
+(qui, lui, existe mais seulement pour une condition SIT simple à une valeur). Dès qu'on veut une
+logique de groupe (plusieurs labels en OR), il faut passer par `-AdvancedRule` en JSON brut, avec
+chaque label déclaré comme `{name = "<GUID>"; type = "Sensitivity"}` dans un bloc
+`Condition.SubConditions[].Value[].groups[].labels[]`.
+
+Deuxième piège, une fois le JSON de base fonctionnel : `-BlockAccess` combiné à un blocage externe
+(`BlockAccessScope PerUser`) **rejette la règle à la création** si `-AccessScope NotInOrganization`
+est passé en paramètre séparé du cmdlet. Le moteur DLP exige que cette condition soit elle-même
+encodée **dans** le JSON, comme un second `SubConditions` au même niveau que le bloc labels,
+relié par `Operator: "And"` — pas en paramètre externe. Message d'erreur obtenu :
+`"you must have 'Content is shared with people outside your organization' as the first condition
+along with operator 'AND' with other conditions or groups in your rule"`.
+
+Conséquence pratique : dès qu'une condition DLP combine plusieurs critères avec une logique
+explicite (labels en OR, label + accès externe en AND, exceptions), réflexe direct vers
+`-AdvancedRule` + hashtable PowerShell + `ConvertTo-Json -Depth 100` — ne jamais chercher de
+paramètre nommé "intuitivement" pour ce niveau de complexité.
+
+</details>
+
+<details>
+<summary>Note technique — Endpoint DLP et Adaptive Protection non couverts en script</summary>
+
+Ces deux fonctionnalités sont couvertes en cours (sections 6 et 5 du SC-401) mais
+ne sont pas scriptables de manière utile sur un tenant dev sans infrastructure.
+
+**Endpoint DLP** nécessite des devices Windows 10/11 onboardés dans Microsoft Defender
+for Endpoint (MDE). Sans machine enrôlée dans MDE, les policies Endpoint DLP sont
+créables via PowerShell (`DeviceDlpRestrictions` comme workload) mais ne déclenchent
+rien — aucune activité endpoint à surveiller. Sur un tenant dev sans VM jointe au
+domaine et onboardée dans MDE, l'exercice se résume à créer un objet vide.
+Configuration et monitoring : **Microsoft Purview portal > Data loss prevention >
+Endpoint DLP settings**.
+
+**Adaptive Protection** couple DLP et Insider Risk Management — le niveau de risque
+d'un utilisateur (calculé par IRM) fait varier dynamiquement les règles DLP qui
+s'appliquent à lui. Requires : licence E5 Compliance ou E5 Security + au moins une
+politique IRM active avec des alertes. Sans utilisateurs réels générant des signaux
+de risque (exfiltration, téléchargement massif, etc.), la fonctionnalité reste
+théorique. Configuration : **Microsoft Purview portal > Insider Risk Management >
+Adaptive Protection**.
+
+</details>
 
 <details>
 <summary>Commandes utiles en une ligne — DLP</summary>
@@ -396,34 +430,42 @@ Get-PSSession | Remove-PSSession
   * Objectif : Lister les Retention Labels, Retention Label Policies, Retention Policies (statiques et adaptive), et leur état de distribution — vue d'ensemble de la posture de rétention du tenant.
   * Connexion requise : `Connect-IPPSSession`
 
-> **Note technique — trois objets à ne pas confondre :**
-> 1. **Retention Label** : l'étiquette elle-même (`New-ComplianceTag`). Définit la durée, le point
->    de départ (création/modification/étiquetage/événement), et le comportement à expiration
->    (suppression, review, ou rien). Un label seul n'a **aucun effet** tant qu'il n'est pas publié.
-> 2. **Retention Label Policy** (`New-RetentionCompliancePolicy` + `-RetentionRuleType`) : publie
->    un ou plusieurs labels vers des emplacements (Exchange, SharePoint...) pour les rendre
->    sélectionnables par les utilisateurs ou par de l'auto-application. C'est un mécanisme de
->    **diffusion**, pas de rétention en soi.
-> 3. **Retention Policy** (`New-RetentionCompliancePolicy` sans label associé + `New-RetentionComplianceRule`) :
->    applique une règle de rétention **directement** sur un périmètre (mailboxes, sites), sans
->    passer par un label sélectionnable par l'utilisateur — rétention "de fond", invisible,
->    appliquée à tout le contenu du périmètre.
->
-> Les trois partagent la même cmdlet racine `New-RetentionCompliancePolicy`, ce qui prête à
-> confusion : c'est le paramètre `-RetentionRuleType` (`ComplianceTagRetention` vs `RetentionPolicy`
-> implicite selon `-Type`) et la présence ou non de `New-RetentionComplianceRule` qui distinguent
-> "publier un label" de "appliquer une rétention de fond".
+<details>
+<summary>Note technique — trois objets à ne pas confondre</summary>
 
-> **Note technique — précédence en cas de policies en conflit :**
-> Si plusieurs Retention Policies (5e statique + 5f adaptive) ou Retention Label Policies
-> s'appliquent au même contenu avec des durées différentes, Purview suit des règles de
-> précédence fixes : rétention la plus longue l'emporte sur suppression automatique,
-> "ne pas supprimer" l'emporte sur "supprimer", explicite (label appliqué manuellement)
-> l'emporte sur implicite (policy de fond). `Get-ComplianceTag -Identity "Nom" | Format-List`
-> et le **Policy Lookup** du portail Purview (Records Management > Policy lookup) permettent
-> de vérifier concrètement quelle règle s'applique à un élément donné, plutôt que de déduire
-> la précédence en théorie — exo couvert par le cours mais non scriptable (Policy Lookup est
-> 100% GUI, aucune cmdlet n'expose cette résolution).
+1. **Retention Label** : l'étiquette elle-même (`New-ComplianceTag`). Définit la durée, le point
+   de départ (création/modification/étiquetage/événement), et le comportement à expiration
+   (suppression, review, ou rien). Un label seul n'a **aucun effet** tant qu'il n'est pas publié.
+2. **Retention Label Policy** (`New-RetentionCompliancePolicy` + `-RetentionRuleType`) : publie
+   un ou plusieurs labels vers des emplacements (Exchange, SharePoint...) pour les rendre
+   sélectionnables par les utilisateurs ou par de l'auto-application. C'est un mécanisme de
+   **diffusion**, pas de rétention en soi.
+3. **Retention Policy** (`New-RetentionCompliancePolicy` sans label associé + `New-RetentionComplianceRule`) :
+   applique une règle de rétention **directement** sur un périmètre (mailboxes, sites), sans
+   passer par un label sélectionnable par l'utilisateur — rétention "de fond", invisible,
+   appliquée à tout le contenu du périmètre.
+
+Les trois partagent la même cmdlet racine `New-RetentionCompliancePolicy`, ce qui prête à
+confusion : c'est le paramètre `-RetentionRuleType` (`ComplianceTagRetention` vs `RetentionPolicy`
+implicite selon `-Type`) et la présence ou non de `New-RetentionComplianceRule` qui distinguent
+"publier un label" de "appliquer une rétention de fond".
+
+</details>
+
+<details>
+<summary>Note technique — précédence en cas de policies en conflit</summary>
+
+Si plusieurs Retention Policies (5e statique + 5f adaptive) ou Retention Label Policies
+s'appliquent au même contenu avec des durées différentes, Purview suit des règles de
+précédence fixes : rétention la plus longue l'emporte sur suppression automatique,
+"ne pas supprimer" l'emporte sur "supprimer", explicite (label appliqué manuellement)
+l'emporte sur implicite (policy de fond). `Get-ComplianceTag -Identity "Nom" | Format-List`
+et le **Policy Lookup** du portail Purview (Records Management > Policy lookup) permettent
+de vérifier concrètement quelle règle s'applique à un élément donné, plutôt que de déduire
+la précédence en théorie — exo couvert par le cours mais non scriptable (Policy Lookup est
+100% GUI, aucune cmdlet n'expose cette résolution).
+
+</details>
 
 <details>
 <summary>Commandes utiles en une ligne — Retention</summary>
