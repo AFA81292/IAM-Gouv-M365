@@ -144,7 +144,7 @@ Get-PSSession | Remove-PSSession
   * Objectif : Créer une règle de flux qui applique `Do Not Forward` sur les mails envoyés vers des destinataires extérieurs au tenant.
   * Connexion requise : `Connect-ExchangeOnline`
   * Licence requise : Microsoft Purview Message Encryption (inclus E3/E5)
-* [Exo 3e : Audit des Transport Rules et DLP Rules liées au chiffrement](./03_Message_Encryption/exo3e-audit-transport-rules.ps1)
+* [Exo 3e : Message Encryption — Audit unifié du chiffrement automatique du tenant](./03_Message_Encryption/exo3e-audit-encryption.ps1)
   * Objectif : Lister les Transport Rules (3b, 3d) **et** les DLP Compliance Rules (3c) du tenant, filtrer celles qui portent une action de chiffrement, afficher leur état et leur priorité — deux types d'objets distincts à interroger séparément depuis la dépréciation décrite ci-dessous.
   * Connexion requise : `Connect-ExchangeOnline` **et** `Connect-IPPSSession`
 
