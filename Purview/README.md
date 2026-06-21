@@ -148,33 +148,23 @@ Get-PSSession | Remove-PSSession
   * Objectif : Lister les Transport Rules (3b, 3d) **et** les DLP Compliance Rules (3c) du tenant, filtrer celles qui portent une action de chiffrement, afficher leur état et leur priorité — deux types d'objets distincts à interroger séparément depuis la dépréciation décrite ci-dessous.
   * Connexion requise : `Connect-ExchangeOnline` **et** `Connect-IPPSSession`
 
-> **Note technique — nommage des templates RMS dépendant de la langue du tenant :**
-> `Get-RMSTemplate` retourne des noms localisés selon la langue d'affichage du tenant. Sur ce
-> tenant (FR), les templates système s'appellent `Chiffrer` / `Ne pas transférer`, pas
-> `Encrypt` / `Do Not Forward` comme le suggère la documentation Microsoft (rédigée en EN).
-> Aucun script de ce chapitre ne fixe donc un nom de template en dur : la résolution se fait
-> par filtre EN+FR (`-match "Encrypt|Chiffrer"`), avec une variable d'override manuel en
-> secours si l'heuristique échoue sur un tenant dans une autre langue.
-
-> **Note technique — MessageContainsDataClassifications déprécié dans les Transport Rules :**
-> Depuis novembre 2023, Microsoft a retiré la prise en charge des prédicats liés à la DLP
-> (`MessageContainsDataClassifications`, `ExceptIfMessageContainsDataClassifications`,
-> `HasSenderOverride`) dans les Exchange Transport Rules (voir aka.ms/NoDLPinETRs). Toute
-> tentative de `New-TransportRule` avec ces paramètres échoue avec l'erreur "Vous ne pouvez
-> pas créer ou mettre à jour des règles de flux de courrier liées à DLP". Le mécanisme
-> supporté pour chiffrer sur détection de classification est une **DLP Compliance Rule**
-> (`New-DlpComplianceRule -EncryptRMSTemplate`), utilisée en 3c. Un mot-clé statique
-> (`SubjectOrBodyContainsWords`, utilisé en 3b) reste un prédicat ETR valide — non concerné.
-> Conséquence pour l'audit (3e) : `Get-TransportRule` ne suffit plus à voir tout le
-> chiffrement automatique du tenant, il faut aussi interroger `Get-DlpComplianceRule`.
-
-> **Note technique — deux surfaces de cmdlets, pour des raisons différentes selon l'exo :**
-> Les Transport Rules par mot-clé (3b, 3d) sont exclusivement Exchange Online
-> (`Connect-ExchangeOnline`). Le chiffrement par classification (3c) est exclusivement
-> Security & Compliance (`Connect-IPPSSession`) — `New-DlpCompliancePolicy`/
-> `New-DlpComplianceRule` n'existent pas ailleurs. Le script 3c ouvre quand même les deux
-> sessions, mais uniquement parce qu'il résout aussi le nom du template RMS via
-> `Get-RMSTemplate`, qui reste un cmdlet Exchange Online.
+> **Note technique — trois pièges d'architecture rencontrés sur ce chapitre :**
+> 1. **Noms de templates localisés.** `Get-RMSTemplate` retourne des noms selon la langue
+>    du tenant (`Chiffrer`/`Ne pas transférer` en FR, pas `Encrypt`/`Do Not Forward`). Les
+>    scripts résolvent le nom dynamiquement (filtre EN+FR) plutôt que de le fixer en dur.
+> 2. **`MessageContainsDataClassifications` est déprécié dans les Transport Rules** depuis
+>    novembre 2023 (aka.ms/NoDLPinETRs). Le chiffrement déclenché par SIT (3c) utilise donc
+>    une **DLP Compliance Rule** (`EncryptRMSTemplate`), pas une Transport Rule — objet
+>    différent, à interroger séparément en audit (3e).
+> 3. **Le backend DLP n'accepte pas toujours le nom localisé** que `Get-RMSTemplate`
+>    (Exchange Online) a pourtant validé — `EncryptRMSTemplate` semble attendre le nom
+>    canonique anglais (`Encrypt`) même sur un tenant FR. 3c teste plusieurs candidats
+>    avant d'abandonner plutôt que de fixer une seule valeur supposée.
+>
+> Conséquence pratique : ce chapitre combine deux surfaces de cmdlets — Exchange Online
+> (Transport Rules, résolution de template) et Security & Compliance (SIT, DLP Rules).
+> `Connect-IPPSSession` et `Connect-ExchangeOnline` sont tous les deux nécessaires dès
+> qu'un exo touche les deux mondes (cas de 3c).
 
 > **Note technique — Advanced Message Encryption (AME) :**
 > AME ajoute deux capacités au-dessus de l'OME standard : le **branding personnalisé** du portail
