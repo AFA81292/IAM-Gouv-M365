@@ -2,33 +2,21 @@
 # Exercice 3c : Message Encryption — DLP Compliance Rule déclenchée par classification (SIT)
 # ========================================================================================
 # Concept : Chiffrer un mail à la détection du SIT custom "Cerberus Corp - Numéro de Badge
-# Interne" (créé en 1b), avec la même intention que 3b (chiffrement automatique, sans
-# intervention utilisateur) mais via le mécanisme correct pour une condition de
-# classification de contenu.
+# Interne" (créé en 1b), via une DLP Compliance Rule (EncryptRMSTemplate) — mécanisme
+# supporté depuis que MessageContainsDataClassifications est déprécié dans les Transport
+# Rules (aka.ms/NoDLPinETRs, voir note technique du README).
 #
-# CHANGEMENT D'ARCHITECTURE PAR RAPPORT À LA VERSION PRÉCÉDENTE :
-# Le premier essai utilisait New-TransportRule -MessageContainsDataClassifications, qui a
-# échoué avec l'erreur "Vous ne pouvez pas créer ou mettre à jour des règles de flux de
-# courrier liées à DLP" (https://aka.ms/NoDLPinETRs). Ce n'est pas un bug de syntaxe :
-# Microsoft a retiré ce prédicat des Exchange Transport Rules en novembre 2023. Le mécanisme
-# supporté pour "chiffrer sur détection de classification" est désormais une DLP Compliance
-# Rule (New-DlpComplianceRule), pas une Transport Rule.
-#
-# Conséquence pratique : l'objet créé par ce script n'apparaîtra PAS dans Get-TransportRule
-# (contrairement à 3b et au futur 3d) — il faut interroger Get-DlpComplianceRule. Le futur
-# exo d'audit (3e) devra donc vérifier les deux types d'objets séparément.
-#
-# Simplification assumée : pas d'équivalent direct à FromScope "InOrganization" sur une DLP
-# Rule de manière fiable — la règle se déclenche sur la classification, sans restriction de
-# direction. Documenté ici plutôt que deviné dans le code.
-#
-# Prérequis : le SIT custom de l'exo 1b doit exister (vérifié, pas supposé) et le template
-# de chiffrement résolu de la même manière qu'en 3b.
+# STRATÉGIE DE REJOUABILITÉ : auto-incrément, PAS suppression+recréation.
+# La suppression d'un objet Purview (DLP Policy, label, SIT...) est asynchrone — jusqu'à
+# 24h de propagation. Recréer un objet du même nom pendant cette fenêtre échoue avec
+# CompliancePolicyAlreadyExistsInScenarioException, même si Remove- a retourné un succès
+# apparent. Ce n'est pas un cas isolé : même famille de comportement déjà rencontrée sur les
+# labels (chapitre 02). Le script cherche donc un nom disponible (suffixe -v2, -v3...)
+# plutôt que de tenter une suppression qui bloquerait le développement pendant 24h.
 #
 # Module requis : ExchangeOnlineManagement
-# Connexion : Connect-IPPSSession (DLP Policy/Rule + vérification SIT — TOUT le cœur du
-#             script tourne ici) + Connect-ExchangeOnline (uniquement pour résoudre le nom
-#             du template via Get-RMSTemplate, comme en 3a/3b)
+# Connexion : Connect-IPPSSession (DLP Policy/Rule, SIT) + Connect-ExchangeOnline
+#             (résolution du template via Get-RMSTemplate)
 # ========================================================================================
 
 # --- OUVERTURE ---
@@ -90,52 +78,42 @@ else {
     Write-Host "-> Template résolu automatiquement : '$Template'`n" -ForegroundColor Green
 }
 
-# --- ÉTAPE 4 : Définition des variables de la policy/rule ---
-# Une DLP Compliance Rule ne peut pas exister seule — elle est toujours rattachée à une
-# DLP Compliance Policy, qui définit le périmètre (ici : tout Exchange Online).
-$PolicyName = "DLP-N7-Classification-Chiffrement"
-$RuleName   = "OME-N7-Classification-Sortant"
+# --- ÉTAPE 4 : Recherche d'un nom disponible (auto-incrément) ---
+# Policy ET Rule sont cherchées ensemble avec le même suffixe, pour rester visuellement
+# synchronisées (évite un "Policy-v3" rattaché à une "Rule-v2" qui désoriente à la lecture
+# six mois plus tard). On vérifie l'existence de l'une OU l'autre à chaque tentative.
+Write-Host "4. Recherche d'un nom disponible pour la policy/rule..." -ForegroundColor Cyan
 
-# Même syntaxe de condition que MessageContainsDataClassifications sur les Transport
-# Rules — coïncidence pratique, les deux objets partagent ce format de hashtable.
+$BasePolicyName = "DLP-N7-Classification-Chiffrement"
+$BaseRuleName   = "OME-N7-Classification-Sortant"
+$PolicyName     = $BasePolicyName
+$RuleName       = $BaseRuleName
+$Counter        = 2
+
+while (
+    (Get-DlpCompliancePolicy -Identity $PolicyName -ErrorAction SilentlyContinue) -or
+    (Get-DlpComplianceRule -Identity $RuleName -ErrorAction SilentlyContinue)
+) {
+    Write-Host "   '$PolicyName' / '$RuleName' déjà pris (ou suppression en attente) — test -v$Counter..." -ForegroundColor Yellow
+    $PolicyName = "$BasePolicyName-v$Counter"
+    $RuleName   = "$BaseRuleName-v$Counter"
+    $Counter++
+}
+Write-Host "-> Noms retenus : Policy='$PolicyName' / Rule='$RuleName'`n" -ForegroundColor Green
+
+# --- ÉTAPE 5 : Définition de la condition de classification ---
 $ClassificationCondition = @(
     @{ Name = $SitName; minCount = "1" }
 )
 
-Write-Host "4. Paramètres de la policy/rule :" -ForegroundColor Cyan
+Write-Host "5. Paramètres de la policy/rule :" -ForegroundColor Cyan
 Write-Host "   Policy     : $PolicyName" -ForegroundColor Gray
 Write-Host "   Rule       : $RuleName"   -ForegroundColor Gray
 Write-Host "   Condition  : SIT '$SitName' (1+ occurrence)" -ForegroundColor Gray
 Write-Host "   Template   : $Template`n" -ForegroundColor Gray
 
-# --- ÉTAPE 4bis : Nettoyage idempotent (rejouabilité du script) ---
-# Si ce script a déjà tourné (run précédent, test, debug), la policy/rule existe encore.
-# Plutôt qu'incrémenter le nom (ce qui laisserait des objets numérotés s'accumuler sur le
-# tenant), on supprime l'objet existant avant de recréer proprement. Un tenant de démo doit
-# rester lisible : un seul "OME-N7-Classification-Sortant" à la fin, pas un historique de
-# tentatives.
-$ExistingPolicy = Get-DlpCompliancePolicy -Identity $PolicyName -ErrorAction SilentlyContinue
-
-if ($ExistingPolicy) {
-    Write-Host "4bis. Policy '$PolicyName' déjà présente (run précédent) — nettoyage avant recréation..." -ForegroundColor Cyan
-
-    # La règle doit être supprimée AVANT la policy parente — même contrainte d'ordre que
-    # les sublabels avant un label group (chapitre 02, leçon déjà documentée).
-    Remove-DlpComplianceRule -Identity $RuleName -Confirm:$false -ErrorAction SilentlyContinue
-    Remove-DlpCompliancePolicy -Identity $PolicyName -Confirm:$false -ErrorAction SilentlyContinue
-
-    # Laisse le temps à la suppression de se propager avant de recréer — même logique de
-    # prudence que le délai de propagation des SIT en 1b (~30s), ici plus court car on
-    # supprime un objet simple plutôt qu'un Rule Package complet.
-    Start-Sleep -Seconds 5
-    Write-Host "-> Nettoyage effectué.`n" -ForegroundColor Green
-}
-
-# --- ÉTAPE 5 : Création de la DLP Policy en mode test ---
-# TestWithNotifications : la policy est active mais aucune action des règles qu'elle
-# contient n'est réellement appliquée — équivalent fonctionnel du AuditAndNotify des
-# Transport Rules, adapté au vocabulaire DLP.
-Write-Host "5. Création de la DLP Policy en mode TestWithNotifications..." -ForegroundColor Cyan
+# --- ÉTAPE 6 : Création de la DLP Policy en mode test ---
+Write-Host "6. Création de la DLP Policy en mode TestWithNotifications..." -ForegroundColor Cyan
 
 try {
     New-DlpCompliancePolicy -Name $PolicyName -ExchangeLocation "All" `
@@ -148,16 +126,12 @@ catch {
     return
 }
 
-# --- ÉTAPE 6 : Création de la DLP Rule (rattachée à la policy) ---
-Write-Host "6. Création de la DLP Rule..." -ForegroundColor Cyan
+# --- ÉTAPE 7 : Création de la DLP Rule (avec repli de template EN/FR) ---
+Write-Host "7. Création de la DLP Rule..." -ForegroundColor Cyan
 
-# Le backend DLP (Security & Compliance) ne reconnaît pas toujours le nom de template
-# localisé que Get-RMSTemplate (Exchange Online) a pourtant validé — découvert en testant
-# 'Chiffrer' qui fonctionne pour 3b (ApplyRightsProtectionTemplate) mais pas ici
-# (EncryptRMSTemplate, NoRmsTemplateFoundException). On teste donc plusieurs candidats :
-# d'abord le nom résolu dynamiquement, puis le nom canonique anglais "Encrypt" en repli —
-# c'est la valeur utilisée dans tous les exemples officiels Microsoft, y compris sur des
-# tenants non-anglophones.
+# Le backend DLP n'accepte pas toujours le nom localisé que Get-RMSTemplate (Exchange
+# Online) a pourtant validé — découvert en testant 'Chiffrer' (échoue, NoRmsTemplateFound
+# Exception) puis 'Encrypt' (fonctionne). On teste donc plusieurs candidats.
 $TemplateCandidates = @($Template)
 if ($TemplateCandidates -notcontains "Encrypt") { $TemplateCandidates += "Encrypt" }
 
@@ -169,7 +143,7 @@ foreach ($CandidateTemplate in $TemplateCandidates) {
             -EncryptRMSTemplate $CandidateTemplate -ErrorAction Stop | Out-Null
 
         Write-Host "-> Succès avec le template '$CandidateTemplate'.`n" -ForegroundColor Green
-        $Template = $CandidateTemplate   # on garde trace du nom qui a réellement fonctionné
+        $Template = $CandidateTemplate
         $RuleCreated = $true
         break
     }
@@ -181,25 +155,25 @@ foreach ($CandidateTemplate in $TemplateCandidates) {
 if (-not $RuleCreated) {
     Write-Host "-> ARRÊT : aucun nom de template testé n'a fonctionné pour EncryptRMSTemplate." -ForegroundColor Red
     Write-Host "   Candidats testés : $($TemplateCandidates -join ', ')" -ForegroundColor Yellow
-    # On nettoie la policy orpheline créée à l'étape 5, sinon elle traîne sans règle.
-    Remove-DlpCompliancePolicy -Identity $PolicyName -Confirm:$false -ErrorAction SilentlyContinue
+    # Policy orpheline sans règle — on ne tente PAS de la supprimer (24h de propagation,
+    # bloquerait le prochain run). On la laisse, l'auto-incrément de l'étape 4 la
+    # contournera au prochain essai.
     Get-PSSession | Remove-PSSession
     return
 }
-# --- ÉTAPE 7 : Vérification de la policy/rule créée ---
-Write-Host "7. Vérification de la policy/rule créée..." -ForegroundColor Cyan
+
+# --- ÉTAPE 8 : Vérification en mode test ---
+Write-Host "8. Vérification de la policy/rule créée..." -ForegroundColor Cyan
 Start-Sleep -Seconds 2
 
 Get-DlpCompliancePolicy -Identity $PolicyName | Select-Object Name, Mode, Enabled | Format-List
 
-# -Identity seul suffit — Get-DlpComplianceRule refuse -Identity ET -Policy ensemble
-# (PolicyAndIdentityParameterUsedTogetherException), contrairement à ce que je supposais.
+# -Identity seul — Get-DlpComplianceRule refuse -Identity ET -Policy ensemble
+# (PolicyAndIdentityParameterUsedTogetherException).
 Get-DlpComplianceRule -Identity $RuleName | Select-Object Name, Disabled | Format-List
 
-# --- ÉTAPE 8 : Bascule en mode Enable ---
-# Comme pour les Transport Rules, ce point de contrôle existerait en prod après lecture
-# des logs de test (ici : Activity Explorer / Content Explorer côté Purview).
-Write-Host "8. Bascule de la policy en mode Enable..." -ForegroundColor Cyan
+# --- ÉTAPE 9 : Bascule en mode Enable ---
+Write-Host "9. Bascule de la policy en mode Enable..." -ForegroundColor Cyan
 
 try {
     Set-DlpCompliancePolicy -Identity $PolicyName -Mode Enable -ErrorAction Stop
@@ -209,8 +183,8 @@ catch {
     Write-Host "-> Échec de la bascule : $_`n" -ForegroundColor Red
 }
 
-# --- ÉTAPE 9 : Vérification finale ---
-Write-Host "9. État final..." -ForegroundColor Cyan
+# --- ÉTAPE 10 : Vérification finale ---
+Write-Host "10. État final..." -ForegroundColor Cyan
 Start-Sleep -Seconds 2
 
 $FinalPolicy = Get-DlpCompliancePolicy -Identity $PolicyName
@@ -233,16 +207,16 @@ Write-Host "=== RÉSUMÉ ===" -ForegroundColor Magenta
 } | Format-List
 
 # --- COMMENT TESTER MANUELLEMENT ---
-# Envoyer un message de Shepard@0n4mg.onmicrosoft.com vers Garrus@0n4mg.onmicrosoft.com
-# contenant un faux numéro de badge GCORP-XXXXX (ex: GCORP-74103) avec un mot corroborant
-# ("badge", "matricule"). Le matching DLP n'apparaît PAS dans le message trace classique
-# (réservé aux Transport Rules) — vérifier via Purview > Data loss prevention > Activity
-# explorer, ou via Get-DlpDetailReport.
+Write-Host "Pour tester : envoyer un message de Shepard@0n4mg.onmicrosoft.com vers" -ForegroundColor Gray
+Write-Host "Garrus@0n4mg.onmicrosoft.com avec un numéro GCORP-XXXXX (ex: GCORP-74103) et un" -ForegroundColor Gray
+Write-Host "mot corroborant ('badge', 'matricule'). Vérifier via Activity Explorer (pas le" -ForegroundColor Gray
+Write-Host "message trace classique) que '$RuleName' s'est déclenchée." -ForegroundColor Gray
 
 # --- NETTOYAGE MÉMOIRE ---
 Remove-Variable SitName, TemplateNameOverride, SitObject, IRMConfig, AllTemplates, `
-    EncryptTemplate, Template, PolicyName, RuleName, ClassificationCondition, RuleParams, `
-    FinalPolicy -ErrorAction SilentlyContinue
+    EncryptTemplate, Template, BasePolicyName, BaseRuleName, PolicyName, RuleName, Counter, `
+    ClassificationCondition, TemplateCandidates, RuleCreated, FinalPolicy `
+    -ErrorAction SilentlyContinue
 
 # --- FERMETURE ---
 Get-PSSession | Remove-PSSession
