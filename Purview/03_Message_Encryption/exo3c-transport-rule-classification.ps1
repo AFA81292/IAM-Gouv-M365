@@ -108,6 +108,29 @@ Write-Host "   Rule       : $RuleName"   -ForegroundColor Gray
 Write-Host "   Condition  : SIT '$SitName' (1+ occurrence)" -ForegroundColor Gray
 Write-Host "   Template   : $Template`n" -ForegroundColor Gray
 
+# --- ÉTAPE 4bis : Nettoyage idempotent (rejouabilité du script) ---
+# Si ce script a déjà tourné (run précédent, test, debug), la policy/rule existe encore.
+# Plutôt qu'incrémenter le nom (ce qui laisserait des objets numérotés s'accumuler sur le
+# tenant), on supprime l'objet existant avant de recréer proprement. Un tenant de démo doit
+# rester lisible : un seul "OME-N7-Classification-Sortant" à la fin, pas un historique de
+# tentatives.
+$ExistingPolicy = Get-DlpCompliancePolicy -Identity $PolicyName -ErrorAction SilentlyContinue
+
+if ($ExistingPolicy) {
+    Write-Host "4bis. Policy '$PolicyName' déjà présente (run précédent) — nettoyage avant recréation..." -ForegroundColor Cyan
+
+    # La règle doit être supprimée AVANT la policy parente — même contrainte d'ordre que
+    # les sublabels avant un label group (chapitre 02, leçon déjà documentée).
+    Remove-DlpComplianceRule -Identity $RuleName -Confirm:$false -ErrorAction SilentlyContinue
+    Remove-DlpCompliancePolicy -Identity $PolicyName -Confirm:$false -ErrorAction SilentlyContinue
+
+    # Laisse le temps à la suppression de se propager avant de recréer — même logique de
+    # prudence que le délai de propagation des SIT en 1b (~30s), ici plus court car on
+    # supprime un objet simple plutôt qu'un Rule Package complet.
+    Start-Sleep -Seconds 5
+    Write-Host "-> Nettoyage effectué.`n" -ForegroundColor Green
+}
+
 # --- ÉTAPE 5 : Création de la DLP Policy en mode test ---
 # TestWithNotifications : la policy est active mais aucune action des règles qu'elle
 # contient n'est réellement appliquée — équivalent fonctionnel du AuditAndNotify des
@@ -163,13 +186,15 @@ if (-not $RuleCreated) {
     Get-PSSession | Remove-PSSession
     return
 }
-# --- ÉTAPE 7 : Vérification en mode test ---
+# --- ÉTAPE 7 : Vérification de la policy/rule créée ---
 Write-Host "7. Vérification de la policy/rule créée..." -ForegroundColor Cyan
 Start-Sleep -Seconds 2
 
 Get-DlpCompliancePolicy -Identity $PolicyName | Select-Object Name, Mode, Enabled | Format-List
-Get-DlpComplianceRule -Identity $RuleName -Policy $PolicyName |
-    Select-Object Name, Disabled | Format-List
+
+# -Identity seul suffit — Get-DlpComplianceRule refuse -Identity ET -Policy ensemble
+# (PolicyAndIdentityParameterUsedTogetherException), contrairement à ce que je supposais.
+Get-DlpComplianceRule -Identity $RuleName | Select-Object Name, Disabled | Format-List
 
 # --- ÉTAPE 8 : Bascule en mode Enable ---
 # Comme pour les Transport Rules, ce point de contrôle existerait en prod après lecture
