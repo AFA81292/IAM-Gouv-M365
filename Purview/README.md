@@ -239,4 +239,91 @@ Remove-TransportRule -Identity "Nom-de-la-rule" -Confirm:$false
 Get-PSSession | Remove-PSSession
 ```
 
+### 04_DLP
+* [Exo 4a : DLP policy simple — protection numéros de CB](./04_DLP/exo4a-dlp-policy-credit-card.ps1)
+  * Objectif : Créer une DLP policy ciblant Exchange, SharePoint et OneDrive, déclenchée par la détection de numéros de carte bancaire (SIT built-in `Credit Card Number`), en mode `TestWithNotifications` — aucun blocage, les violations sont journalisées et des rapports d'incident sont générés.
+  * Connexion requise : `Connect-IPPSSession`
+  * Licence requise : Microsoft Purview DLP (inclus E3/E5)
+* [Exo 4b : DLP policy avec règle de blocage et seuil](./04_DLP/exo4b-dlp-policy-block-rule.ps1)
+  * Objectif : Créer une DLP policy distincte avec une règle à seuil (1+ occurrence de CB), action blocage actif + notification utilisateur + rapport d'incident — démonstration du passage d'une posture de détection à une posture d'enforcement.
+  * Connexion requise : `Connect-IPPSSession`
+  * Licence requise : Microsoft Purview DLP (inclus E3/E5)
+* [Exo 4c : DLP policy basée sur un label de sensibilité](./04_DLP/exo4c-dlp-policy-sensitivity-label.ps1)
+  * Objectif : Créer une DLP policy qui bloque le partage externe des fichiers portant le label `NormandySR2 - Confidentiel` ou ses sublabels — démonstration du couplage DLP / Sensitivity Labels comme couche de défense en profondeur.
+  * Connexion requise : `Connect-IPPSSession`
+  * Licence requise : Microsoft Purview DLP + Microsoft Purview Information Protection (inclus E5)
+* [Exo 4d : Cycle de vie d'une DLP policy](./04_DLP/exo4d-dlp-policy-lifecycle.ps1)
+  * Objectif : Passer la policy créée en 4a de `TestWithNotifications` à `Enable` (enforcement réel), puis la repasser en `Test` — démonstration du workflow de mise en production d'une DLP policy sans recréation.
+  * Connexion requise : `Connect-IPPSSession`
+* [Exo 4e : Audit des DLP policies du tenant](./04_DLP/exo4e-audit-dlp.ps1)
+  * Objectif : Lister l'ensemble des DLP policies, filtrer par mode, afficher les règles associées et leur état — vue d'ensemble de la posture DLP du tenant.
+  * Connexion requise : `Connect-IPPSSession`
+
+> **Note technique — Endpoint DLP et Adaptive Protection :**
+> Ces deux fonctionnalités sont couvertes en cours (sections 6 et 5 du SC-401) mais
+> ne sont pas scriptables de manière utile sur un tenant dev sans infrastructure.
+>
+> **Endpoint DLP** nécessite des devices Windows 10/11 onboardés dans Microsoft Defender
+> for Endpoint (MDE). Sans machine enrôlée dans MDE, les policies Endpoint DLP sont
+> créables via PowerShell (`DeviceDlpRestrictions` comme workload) mais ne déclenchent
+> rien — aucune activité endpoint à surveiller. Sur un tenant dev sans VM jointe au
+> domaine et onboardée dans MDE, l'exercice se résume à créer un objet vide.
+> Configuration et monitoring : **Microsoft Purview portal > Data loss prevention >
+> Endpoint DLP settings**.
+>
+> **Adaptive Protection** couple DLP et Insider Risk Management — le niveau de risque
+> d'un utilisateur (calculé par IRM) fait varier dynamiquement les règles DLP qui
+> s'appliquent à lui. Requires : licence E5 Compliance ou E5 Security + au moins une
+> politique IRM active avec des alertes. Sans utilisateurs réels générant des signaux
+> de risque (exfiltration, téléchargement massif, etc.), la fonctionnalité reste
+> théorique. Configuration : **Microsoft Purview portal > Insider Risk Management >
+> Adaptive Protection**.
+
+<details>
+<summary>Commandes utiles en une ligne — DLP</summary>
+
+```powershell
+# Lister toutes les DLP policies avec leur mode
+Get-DlpCompliancePolicy | Select-Object Name, Mode, Enabled | Sort-Object Name
+
+# Filtrer les policies en mode Enable (enforcement actif)
+Get-DlpCompliancePolicy | Where-Object { $_.Mode -eq "Enable" } | Select-Object Name, Mode
+
+# Filtrer les policies en mode Test (détection uniquement)
+Get-DlpCompliancePolicy | Where-Object { $_.Mode -like "Test*" } | Select-Object Name, Mode
+
+# Lister les règles d'une policy spécifique
+Get-DlpComplianceRule -Policy "Nom-de-la-policy" | Select-Object Name, Disabled, BlockAccess
+
+# Lister toutes les règles de toutes les policies (vue globale)
+Get-DlpCompliancePolicy | ForEach-Object {
+    $PolicyName = $_.Name
+    Get-DlpComplianceRule -Policy $PolicyName |
+        Select-Object @{N="Policy";E={$PolicyName}}, Name, Disabled, BlockAccess
+}
+
+# Passer une policy en mode Enable (enforcement réel)
+Set-DlpCompliancePolicy -Identity "Nom-de-la-policy" -Mode Enable
+
+# Repasser une policy en mode Test sans notification
+Set-DlpCompliancePolicy -Identity "Nom-de-la-policy" -Mode TestWithoutNotifications
+
+# Repasser une policy en mode Test avec notification
+Set-DlpCompliancePolicy -Identity "Nom-de-la-policy" -Mode TestWithNotifications
+
+# Désactiver une règle sans supprimer la policy
+Set-DlpComplianceRule -Identity "Nom-de-la-règle" -Disabled $true
+
+# Supprimer une règle PUIS sa policy (ordre obligatoire)
+Remove-DlpComplianceRule -Identity "Nom-de-la-règle" -Confirm:$false
+Remove-DlpCompliancePolicy -Identity "Nom-de-la-policy" -Confirm:$false
+
+# Fermer proprement les sessions
+Get-PSSession | Remove-PSSession
+```
+
+</details>
+
+---
+
 </details>
