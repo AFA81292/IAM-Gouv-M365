@@ -237,6 +237,10 @@ Remove-TransportRule -Identity "Nom-de-la-rule" -Confirm:$false
 
 # Fermer proprement toutes les sessions (Exchange Online ET Security & Compliance)
 Get-PSSession | Remove-PSSession
+
+
+</details>
+
 ```
 
 ### 04_DLP
@@ -326,4 +330,4 @@ Get-PSSession | Remove-PSSession
 
 ---
 
-</details>
+
