@@ -29,22 +29,34 @@ Get-PSSession | Remove-PSSession
 $env:MSAL_ENABLE_WAM = "0"
 Connect-IPPSSession -UserPrincipalName GeptorAdmin@0n4mg.onmicrosoft.com
 
-# --- ÉTAPE 1 : Vérification de l'existence des labels cibles ---
-Write-Host "1. Vérification des labels à publier..." -ForegroundColor Cyan
+# --- ÉTAPE 1 : Résolution des labels à publier ---
+# Résolution par PRÉFIXE, pas par nom fixe : si 5a/5b ont été relancés et ont pris un
+# suffixe -v2/-v3 (nom de base déjà pris), un nom fixe en dur ici les manquerait
+# silencieusement. On cherche tous les labels dont le nom commence par le préfixe
+# attendu, et on prend le dernier créé (WhenCreated le plus récent) pour chaque famille.
+Write-Host "1. Résolution des labels à publier..." -ForegroundColor Cyan
 
-$LabelNames = @(
+$LabelPrefixes = @(
     "RET-Citadel-3ans-Modification",
     "RET-Citadel-7ans-Creation-Review"
 )
 
+$AllTags = Get-ComplianceTag
+
 $ResolvedLabels = @()
-foreach ($Name in $LabelNames) {
-    $Label = Get-ComplianceTag -Identity $Name -ErrorAction SilentlyContinue
-    if ($Label) {
-        $ResolvedLabels += $Label.Name
-        Write-Host "   OK : '$Name' trouvé." -ForegroundColor Gray
+foreach ($Prefix in $LabelPrefixes) {
+    $Matches = $AllTags | Where-Object { $_.Name -like "$Prefix*" } |
+        Sort-Object WhenCreated -Descending
+
+    if ($Matches) {
+        $Latest = $Matches[0].Name
+        $ResolvedLabels += $Latest
+        Write-Host "   OK : '$Latest' résolu (préfixe '$Prefix')." -ForegroundColor Gray
+        if ($Matches.Count -gt 1) {
+            Write-Host "   Info : $($Matches.Count) variantes trouvées, la plus récente est retenue." -ForegroundColor DarkGray
+        }
     } else {
-        Write-Host "   MANQUANT : '$Name' introuvable. Vérifier exos 5a/5b." -ForegroundColor Yellow
+        Write-Host "   MANQUANT : aucun label '$Prefix*' trouvé. Vérifier exos 5a/5b." -ForegroundColor Yellow
     }
 }
 
@@ -149,7 +161,7 @@ Write-Host "pas un échec.`n" -ForegroundColor Yellow
 } | Format-List
 
 # --- NETTOYAGE MÉMOIRE ---
-Remove-Variable LabelNames, Name, Label, ResolvedLabels,
+Remove-Variable LabelPrefixes, AllTags, Prefix, Matches, Latest, ResolvedLabels,
                 BasePolicyName, PolicyName, Counter,
                 NewPolicy, CreatedRules, Rule, CheckPolicy, CheckRules `
                 -ErrorAction SilentlyContinue
