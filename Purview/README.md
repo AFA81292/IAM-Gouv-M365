@@ -136,17 +136,17 @@ Get-PSSession | Remove-PSSession
   * Objectif : Créer une règle de flux qui applique automatiquement le template de chiffrement simple (résolu dynamiquement — `Chiffrer`/`Encrypt` selon la langue du tenant, pas un nom en dur) sur les mails sortants contenant le mot-clé `CONFIDENTIEL`.
   * Connexion requise : `Connect-ExchangeOnline`
   * Licence requise : Microsoft Purview Message Encryption (inclus E3/E5)
-* [Exo 3c : Transport Rule OME — déclenchement par classification (SIT)](./03_Message_Encryption/exo3c-transport-rule-classification.ps1)
-  * Objectif : Appliquer le même chiffrement que 3b, mais déclenché par la détection du SIT custom `Cerberus Corp - Numéro de Badge Interne` (créé en 1b) via `MessageContainsDataClassifications`, plutôt que par un mot-clé statique — démontre l'indépendance entre condition et action d'une Transport Rule.
-  * Connexion requise : `Connect-IPPSSession` (vérification du SIT, surface Security & Compliance) **et** `Connect-ExchangeOnline` (création de la règle, surface Exchange) — premier exo du chapitre à nécessiter les deux sessions simultanément.
+* [Exo 3c : DLP Compliance Rule — chiffrement par classification (SIT)](./03_Message_Encryption/exo3c-dlp-rule-classification-encrypt.ps1)
+  * Objectif : Appliquer le même chiffrement que 3b, mais déclenché par la détection du SIT custom `Cerberus Corp - Numéro de Badge Interne` (créé en 1b) via une **DLP Compliance Rule** (`EncryptRMSTemplate`) — `MessageContainsDataClassifications` est déprécié côté Transport Rules depuis fin 2023, ce mécanisme est l'alternative supportée.
+  * Connexion requise : `Connect-IPPSSession` (création de la policy/rule, vérification du SIT — cœur du script) **et** `Connect-ExchangeOnline` (uniquement pour résoudre le nom du template via `Get-RMSTemplate`)
   * Licence requise : Microsoft Purview Message Encryption (inclus E3/E5)
 * [Exo 3d : Transport Rule OME — Do Not Forward hors tenant](./03_Message_Encryption/exo3d-transport-rule-dnf.ps1)
   * Objectif : Créer une règle de flux qui applique `Do Not Forward` sur les mails envoyés vers des destinataires extérieurs au tenant.
   * Connexion requise : `Connect-ExchangeOnline`
   * Licence requise : Microsoft Purview Message Encryption (inclus E3/E5)
-* [Exo 3e : Audit des Transport Rules liées au chiffrement](./03_Message_Encryption/exo3e-audit-transport-rules.ps1)
-  * Objectif : Lister toutes les Transport Rules du tenant, filtrer celles qui portent une action OME, afficher leur état et leur priorité.
-  * Connexion requise : `Connect-ExchangeOnline`
+* [Exo 3e : Audit des Transport Rules et DLP Rules liées au chiffrement](./03_Message_Encryption/exo3e-audit-transport-rules.ps1)
+  * Objectif : Lister les Transport Rules (3b, 3d) **et** les DLP Compliance Rules (3c) du tenant, filtrer celles qui portent une action de chiffrement, afficher leur état et leur priorité — deux types d'objets distincts à interroger séparément depuis la dépréciation décrite ci-dessous.
+  * Connexion requise : `Connect-ExchangeOnline` **et** `Connect-IPPSSession`
 
 > **Note technique — nommage des templates RMS dépendant de la langue du tenant :**
 > `Get-RMSTemplate` retourne des noms localisés selon la langue d'affichage du tenant. Sur ce
@@ -156,14 +156,25 @@ Get-PSSession | Remove-PSSession
 > par filtre EN+FR (`-match "Encrypt|Chiffrer"`), avec une variable d'override manuel en
 > secours si l'heuristique échoue sur un tenant dans une autre langue.
 
-> **Note technique — deux surfaces de cmdlets dans ce chapitre :**
-> Les Transport Rules (`New-TransportRule`, `Get-RMSTemplate`, `Get-IRMConfiguration`) sont
-> exclusivement Exchange Online (`Connect-ExchangeOnline`). Les Sensitive Information Types
-> (`Get-DlpSensitiveInformationType`) sont exclusivement Security & Compliance
-> (`Connect-IPPSSession`). Dès qu'un exercice combine condition basée sur un SIT et action
-> de Transport Rule (cas de 3c), les deux sessions doivent être ouvertes simultanément —
-> oubli facile si on copie-colle l'ouverture de session d'un exo qui n'utilisait qu'une
-> seule des deux surfaces.
+> **Note technique — MessageContainsDataClassifications déprécié dans les Transport Rules :**
+> Depuis novembre 2023, Microsoft a retiré la prise en charge des prédicats liés à la DLP
+> (`MessageContainsDataClassifications`, `ExceptIfMessageContainsDataClassifications`,
+> `HasSenderOverride`) dans les Exchange Transport Rules (voir aka.ms/NoDLPinETRs). Toute
+> tentative de `New-TransportRule` avec ces paramètres échoue avec l'erreur "Vous ne pouvez
+> pas créer ou mettre à jour des règles de flux de courrier liées à DLP". Le mécanisme
+> supporté pour chiffrer sur détection de classification est une **DLP Compliance Rule**
+> (`New-DlpComplianceRule -EncryptRMSTemplate`), utilisée en 3c. Un mot-clé statique
+> (`SubjectOrBodyContainsWords`, utilisé en 3b) reste un prédicat ETR valide — non concerné.
+> Conséquence pour l'audit (3e) : `Get-TransportRule` ne suffit plus à voir tout le
+> chiffrement automatique du tenant, il faut aussi interroger `Get-DlpComplianceRule`.
+
+> **Note technique — deux surfaces de cmdlets, pour des raisons différentes selon l'exo :**
+> Les Transport Rules par mot-clé (3b, 3d) sont exclusivement Exchange Online
+> (`Connect-ExchangeOnline`). Le chiffrement par classification (3c) est exclusivement
+> Security & Compliance (`Connect-IPPSSession`) — `New-DlpCompliancePolicy`/
+> `New-DlpComplianceRule` n'existent pas ailleurs. Le script 3c ouvre quand même les deux
+> sessions, mais uniquement parce qu'il résout aussi le nom du template RMS via
+> `Get-RMSTemplate`, qui reste un cmdlet Exchange Online.
 
 > **Note technique — Advanced Message Encryption (AME) :**
 > AME ajoute deux capacités au-dessus de l'OME standard : le **branding personnalisé** du portail
@@ -181,13 +192,13 @@ Get-PSSession | Remove-PSSession
 > exercice PowerShell autonome sur tenant dev. Configuration via :
 > **Exchange Admin Center > Mail flow > Message encryption**.
 
-> **Note technique — chevauchement label / transport rule sur un même SIT :**
+> **Note technique — chevauchement label / DLP rule sur un même SIT :**
 > Le SIT `Cerberus Corp - Numéro de Badge Interne` (créé en 1b) déclenche désormais deux
 > mécanismes indépendants : l'auto-labeling de l'exo 2e (qui applique un label potentiellement
-> chiffrant) et la Transport Rule de l'exo 3c (qui applique un template RMS directement). Les
-> deux peuvent s'exécuter sur le même message. Ce n'est pas un défaut de configuration — c'est
-> un point réel de précédence à connaître en environnement de production, documenté ici plutôt
-> que découvert en audit.
+> chiffrant) et la DLP Compliance Rule de l'exo 3c (qui applique un template RMS directement).
+> Les deux peuvent s'exécuter sur le même message. Ce n'est pas un défaut de configuration —
+> c'est un point réel de précédence à connaître en environnement de production, documenté ici
+> plutôt que découvert en audit.
 
 <details>
 <summary>Commandes utiles en une ligne — Message Encryption</summary>
@@ -199,25 +210,40 @@ Get-IRMConfiguration | Format-List
 # Lister les templates RMS disponibles (noms localisés selon la langue du tenant)
 Get-RMSTemplate | Select-Object Name, Description, Guid
 
-# Lister toutes les Transport Rules par priorité
+# Lister toutes les Transport Rules par priorité (chiffrement par mot-clé : 3b, 3d)
 Get-TransportRule | Select-Object Name, Priority, State | Sort-Object Priority
 
-# Filtrer les rules avec une action OME (chiffrement appliqué)
+# Filtrer les Transport Rules avec une action OME (chiffrement appliqué)
 Get-TransportRule | Where-Object {
     $_.ApplyRightsProtectionTemplate -ne $null
 } | Select-Object Name, State, Priority
 
+# Lister les DLP Compliance Policies (chiffrement par classification : 3c)
+Get-DlpCompliancePolicy | Select-Object Name, Mode, Enabled
+
+# Lister les DLP Compliance Rules d'une policy donnée
+Get-DlpComplianceRule -Policy "Nom-de-la-policy" | Select-Object Name, Disabled
+
+# Filtrer les DLP rules qui appliquent un chiffrement RMS
+Get-DlpComplianceRule | Where-Object { $_.EncryptRMSTemplate } |
+    Select-Object Name, EncryptRMSTemplate
+
+# Vérifier qu'un SIT custom existe (nécessite Connect-IPPSSession)
+Get-DlpSensitiveInformationType -Identity "Nom-du-SIT" | Format-List
+
+# Repasser une DLP policy en mode test sans la supprimer
+Set-DlpCompliancePolicy -Identity "Nom-de-la-policy" -Mode TestWithNotifications
+
 # Désactiver une Transport Rule sans la supprimer
 Disable-TransportRule -Identity "Nom-de-la-rule"
 
-# Réactiver une Transport Rule
-Enable-TransportRule -Identity "Nom-de-la-rule"
+# Supprimer une DLP rule PUIS sa policy (ordre obligatoire — la rule doit être supprimée
+# avant la policy parente, même logique que les sublabels avant un label group)
+Remove-DlpComplianceRule -Identity "Nom-de-la-rule" -Confirm:$false
+Remove-DlpCompliancePolicy -Identity "Nom-de-la-policy" -Confirm:$false
 
 # Supprimer une Transport Rule
 Remove-TransportRule -Identity "Nom-de-la-rule" -Confirm:$false
-
-# Vérifier qu'un SIT custom existe (nécessite Connect-IPPSSession, pas Connect-ExchangeOnline)
-Get-DlpSensitiveInformationType -Identity "Nom-du-SIT" | Format-List
 
 # Fermer proprement toutes les sessions (Exchange Online ET Security & Compliance)
 Get-PSSession | Remove-PSSession
