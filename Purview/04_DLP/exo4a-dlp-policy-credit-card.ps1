@@ -17,11 +17,13 @@
 #       └── BlockAccess                          (action : blocage — pas ici en 4a)
 #
 # Ce que fait ce script :
-#   1. Recherche un nom disponible (auto-incrément si déjà pris)
-#   2. Crée la DLP policy sur Exchange + SharePoint + OneDrive
-#   3. Crée la règle de détection (SIT : Credit Card Number, 1+ occurrence)
-#   4. Mode TestWithNotifications : aucun blocage, rapports d'incident générés
-#   5. Vérifie la création depuis la source de vérité
+#   1. Reset total de session (purge toute session résiduelle)
+#   2. Recherche un nom disponible (auto-incrément si déjà pris)
+#   3. Crée la DLP policy sur Exchange + SharePoint + OneDrive
+#   4. Crée la règle de détection (SIT : Credit Card Number, 1+ occurrence)
+#   5. Mode TestWithNotifications : aucun blocage, rapports d'incident générés
+#   6. Vérifie la création depuis la source de vérité
+#   7. Ferme proprement toutes les sessions
 #
 # Différence entre les modes :
 #   TestWithoutNotifications : détection silencieuse, logs uniquement, aucun mail
@@ -37,12 +39,25 @@
 # Connexion : Connect-IPPSSession (Security & Compliance, pas Exchange Online)
 # ========================================================================================
 
-# --- OUVERTURE ---
-# Workaround WAM (Windows Authentication Manager) — nécessaire sur certaines machines
-# Windows 11 récentes où Connect-IPPSSession échoue avec une erreur MSAL silencieuse.
-# Cette variable d'environnement force l'authentification sans le broker WAM.
-$env:MSAL_ENABLE_WAM = "0"
+# --- OUVERTURE — RESET DE SESSION TOTAL ---
+# REX : des sessions fantômes (Exchange Online ou IPPSSession) restées ouvertes depuis
+# un script précédent peuvent provoquer des erreurs silencieuses, des authentifications
+# croisées, ou des cmdlets qui tapent sur le mauvais endpoint. On purge TOUT avant de
+# commencer, sans exception, même si on pense qu'aucune session n'est ouverte.
+#
+# Ordre de nettoyage :
+#   1. Disconnect-ExchangeOnline : ferme proprement la session Exchange Online si active
+#   2. Get-PSSession | Remove-PSSession : purge les sessions PowerShell résiduelles
+#      (IPPSSession, sessions RPS legacy, tout ce qui traîne en mémoire)
+#   3. $env:MSAL_ENABLE_WAM = "0" : workaround WAM AVANT la nouvelle connexion
+#      (WAM = Windows Authentication Manager — broker auth Windows 11 qui peut bloquer
+#       Connect-IPPSSession avec une erreur MSAL silencieuse sur certaines configs)
+#
+# Note : Connect-IPPSSession ne supporte pas -ShowBanner:$false (contrairement à
+# Connect-ExchangeOnline). Le bandeau REST s'affiche toujours — comportement normal.
 Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue
+Get-PSSession | Remove-PSSession
+$env:MSAL_ENABLE_WAM = "0"
 Connect-IPPSSession -UserPrincipalName GeptorAdmin@0n4mg.onmicrosoft.com
 
 # ========================================================================================
@@ -54,8 +69,8 @@ Write-Host "1. Recherche d'un nom disponible pour la policy..." -ForegroundColor
 # suppression précédente se propage (le backend Purview peut mettre plusieurs minutes
 # à libérer un nom même après un Remove-DlpCompliancePolicy réussi).
 # L'auto-incrément évite le blocage : on cherche le premier nom libre parmi
-# "DLP-CreditCard-Protection", "-v2", "-v3", etc.
-$BasePolicyName = "DLP-CreditCard-Protection"
+# "DLP-Citadelle-CreditCard-Protection", "-v2", "-v3", etc.
+$BasePolicyName = "DLP-Citadelle-CreditCard-Protection"
 $PolicyName     = $BasePolicyName
 $Counter        = 2
 while (Get-DlpCompliancePolicy -Identity $PolicyName -ErrorAction SilentlyContinue) {
@@ -66,7 +81,7 @@ while (Get-DlpCompliancePolicy -Identity $PolicyName -ErrorAction SilentlyContin
 Write-Host "-> Nom retenu pour la policy : '$PolicyName'`n" -ForegroundColor Green
 
 # Même logique pour la règle — elle doit aussi avoir un nom unique dans le tenant
-$BaseRuleName = "RULE-CreditCard-Detection"
+$BaseRuleName = "RULE-Citadelle-CreditCard-Detection"
 $RuleName     = $BaseRuleName
 $Counter      = 2
 while (Get-DlpComplianceRule -Identity $RuleName -ErrorAction SilentlyContinue) {
@@ -98,18 +113,20 @@ Write-Host "2. Création de la DLP policy '$PolicyName'..." -ForegroundColor Cya
 #   Bonne pratique : toujours renseigner — utile pour l'audit et les équipes Sec/Comp.
 try {
     $NewPolicy = New-DlpCompliancePolicy `
-        -Name              $PolicyName `
-        -ExchangeLocation  "All" `
+        -Name               $PolicyName `
+        -ExchangeLocation   "All" `
         -SharePointLocation "All" `
-        -OneDriveLocation  "All" `
-        -Mode              "TestWithNotifications" `
-        -Comment           "Exo 4a — DLP protection CB sur Exchange + SPO + ODfB. Mode test, aucun blocage." `
+        -OneDriveLocation   "All" `
+        -Mode               "TestWithNotifications" `
+        -Comment            "Exo 4a — DLP protection CB sur Exchange + SPO + ODfB. Mode test, aucun blocage." `
         -ErrorAction Stop
 
     Write-Host "-> Policy créée : $($NewPolicy.Name) [Mode : $($NewPolicy.Mode)]`n" -ForegroundColor Green
 }
 catch {
     Write-Host "-> Échec de la création de la policy : $_" -ForegroundColor Red
+    Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue
+    Get-PSSession | Remove-PSSession
     return
 }
 
@@ -123,19 +140,28 @@ Write-Host "3. Création de la règle '$RuleName'..." -ForegroundColor Cyan
 #
 # --- CONDITION ---
 # -ContentContainsSensitiveInformation : c'est la condition de détection.
-# On lui passe une hashtable avec :
-#   Name       : le nom exact du SIT (built-in ou custom)
-#   minCount   : nombre minimum d'occurrences pour déclencher la règle
-#   maxCount   : nombre maximum (optionnel — "any" si omis)
-#   minConfidence : niveau de confiance minimum du SIT pour compter une occurrence
+# On lui passe un TABLEAU de hashtables (même pour un seul SIT — le tableau est obligatoire).
 #
-# Pour "Credit Card Number", le SIT natif Microsoft a trois niveaux de confiance :
-#   65  (Low)    : pattern regex seul — plus de faux positifs
-#   75  (Medium) : regex + checksum Luhn valide
-#   85  (High)   : regex + Luhn + mot-clé proche (Visa, MasterCard, etc.)
+# PIÈGE 1 — clés en minuscules strictes :
+# L'API REST Purview v3 (module ExchangeOnlineManagement >= 3.x) exige des clés
+# en minuscules. Les clés PascalCase (Name, MinCount) documentées sur Microsoft Learn
+# sont rejetées avec "InvalidContentContainsSensitiveInformationException".
+# Clés valides : "name", "mincount", "maxcount", "confidencelevel"
+# Les valeurs numériques de count doivent être passées comme strings ("1").
 #
-# On utilise 75 (Medium) — bon équilibre détection / faux positifs sur tenant dev.
-# En production, on monte souvent à 85 pour réduire le bruit.
+# PIÈGE 2 — confidencelevel remplace minconfidence :
+# Les clés "minconfidence" et "maxconfidence" sont dépréciées depuis le module v3.
+# La clé attendue est "confidencelevel" avec les valeurs textuelles "High", "Medium", "Low".
+# Passer "minconfidence" génère un WARNING mais fonctionne encore — on utilise
+# "confidencelevel" pour éviter le bruit et rester sur l'API courante.
+#
+# Pour "Credit Card Number", les niveaux correspondent à :
+#   Low    : pattern regex seul — plus de faux positifs
+#   Medium : regex + checksum Luhn valide
+#   High   : regex + Luhn + mot-clé proche (Visa, MasterCard, etc.)
+#
+# On utilise "Medium" — bon équilibre détection / faux positifs sur tenant dev.
+# En production, on monte souvent à "High" pour réduire le bruit.
 #
 # -AccessScope "NotInOrganization" : la règle se déclenche uniquement quand le contenu
 # est partagé vers l'EXTÉRIEUR du tenant. On ne bloque pas la circulation interne.
@@ -146,34 +172,38 @@ Write-Host "3. Création de la règle '$RuleName'..." -ForegroundColor Cyan
 #
 # --- ACTIONS ---
 # -GenerateIncidentReport "SiteAdmin" : envoie un rapport d'incident à l'admin du site
-# (pour SPO/ODfB) ou à l'admin Exchange. Valeurs possibles : "SiteAdmin", adresse email.
-# -IncidentReportContent : quelles infos inclure dans le rapport.
-#   "All" = tout (contenu détecté, règle déclenchée, utilisateur, heure, etc.)
+# (pour SPO/ODfB) ou à l'admin Exchange.
+# -IncidentReportContent @("All") : inclut tout dans le rapport (contenu détecté,
+# règle déclenchée, utilisateur, heure, etc.)
 #
-# -NotifyUser "LastModifiedBy" : notifie l'utilisateur qui a modifié/envoyé le fichier.
-# En mode TestWithNotifications, cette notification est envoyée même si aucun blocage.
-# En mode Enable, c'est une notification avant/après blocage selon la config.
-# Valeurs possibles : "LastModifiedBy", "Owner", adresse email explicite
+# PIÈGE 3 — NotifyUser "LastModifier", pas "LastModifiedBy" :
+# La doc Microsoft Learn indique "LastModifiedBy" — la valeur réellement acceptée
+# par l'API REST v3 est "LastModifier" (sans "By").
+# Valeurs valides : "LastModifier", "Owner", "SiteAdmin", adresse SMTP explicite.
 #
 # Note : -BlockAccess n'est PAS défini ici — c'est volontaire.
 # En mode TestWithNotifications, même avec BlockAccess=$true, rien n'est bloqué.
 # On l'ajoute explicitement en 4b pour la démonstration avec une policy dédiée.
-$SITCondition = @{
-    Name          = "Credit Card Number"
-    minCount      = 1
-    minConfidence = 75
-}
+
+# Tableau de hashtables — clés en minuscules, confidencelevel en valeur textuelle
+$SITCondition = @(
+    @{
+        name            = "Credit Card Number"
+        mincount        = "1"
+        confidencelevel = "Medium"
+    }
+)
 
 try {
     $NewRule = New-DlpComplianceRule `
-        -Name                              $RuleName `
-        -Policy                            $PolicyName `
+        -Name                                $RuleName `
+        -Policy                              $PolicyName `
         -ContentContainsSensitiveInformation $SITCondition `
-        -AccessScope                       "NotInOrganization" `
-        -GenerateIncidentReport            "SiteAdmin" `
-        -IncidentReportContent             @("All") `
-        -NotifyUser                        "LastModifiedBy" `
-        -Comment                           "Exo 4a — Détection CB (confiance >= 75%), rapport + notification, aucun blocage." `
+        -AccessScope                         "NotInOrganization" `
+        -GenerateIncidentReport              "SiteAdmin" `
+        -IncidentReportContent               @("All") `
+        -NotifyUser                          "LastModifier" `
+        -Comment                             "Exo 4a — Detection CB (Medium), rapport + notification, aucun blocage." `
         -ErrorAction Stop
 
     Write-Host "-> Règle créée : $($NewRule.Name)" -ForegroundColor Green
@@ -182,7 +212,9 @@ try {
 catch {
     Write-Host "-> Échec de la création de la règle : $_" -ForegroundColor Red
     Write-Host "   La policy '$PolicyName' a été créée mais reste sans règle." -ForegroundColor Yellow
-    Write-Host "   Supprimer manuellement via : Remove-DlpCompliancePolicy -Identity '$PolicyName' -Confirm:`$false" -ForegroundColor Yellow
+    Write-Host "   Supprimer via : Remove-DlpCompliancePolicy -Identity '$PolicyName' -Confirm:`$false" -ForegroundColor Yellow
+    Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue
+    Get-PSSession | Remove-PSSession
     return
 }
 
@@ -196,17 +228,17 @@ Write-Host "4. Vérification depuis le backend Purview..." -ForegroundColor Cyan
 Start-Sleep -Seconds 3
 
 $CheckPolicy = Get-DlpCompliancePolicy -Identity $PolicyName -ErrorAction SilentlyContinue
-$CheckRule   = Get-DlpComplianceRule   -Policy $PolicyName  -ErrorAction SilentlyContinue
+$CheckRule   = Get-DlpComplianceRule   -Policy   $PolicyName -ErrorAction SilentlyContinue
 
 if ($CheckPolicy) {
     Write-Host "-> Policy confirmée :" -ForegroundColor Green
     [PSCustomObject]@{
-        Nom          = $CheckPolicy.Name
-        Mode         = $CheckPolicy.Mode
-        Exchange     = if ($CheckPolicy.ExchangeLocation) { "All" } else { "Non configuré" }
-        SharePoint   = if ($CheckPolicy.SharePointLocation) { "All" } else { "Non configuré" }
-        OneDrive     = if ($CheckPolicy.OneDriveLocation) { "All" } else { "Non configuré" }
-        DistribStatus= $CheckPolicy.DistributionStatus
+        Nom           = $CheckPolicy.Name
+        Mode          = $CheckPolicy.Mode
+        Exchange      = if ($CheckPolicy.ExchangeLocation)   { "All" } else { "Non configuré" }
+        SharePoint    = if ($CheckPolicy.SharePointLocation) { "All" } else { "Non configuré" }
+        OneDrive      = if ($CheckPolicy.OneDriveLocation)   { "All" } else { "Non configuré" }
+        DistribStatus = $CheckPolicy.DistributionStatus
     } | Format-List
 } else {
     Write-Host "-> ATTENTION : policy non trouvée lors de la vérification." -ForegroundColor Red
@@ -215,12 +247,12 @@ if ($CheckPolicy) {
 if ($CheckRule) {
     Write-Host "-> Règle confirmée :" -ForegroundColor Green
     [PSCustomObject]@{
-        Nom           = $CheckRule.Name
-        PolicyParente = $CheckRule.ParentPolicyName
-        Désactivée    = $CheckRule.Disabled
-        AccessScope   = $CheckRule.AccessScope
+        Nom             = $CheckRule.Name
+        PolicyParente   = $CheckRule.ParentPolicyName
+        Désactivée      = $CheckRule.Disabled
+        AccessScope     = $CheckRule.AccessScope
         RapportIncident = "SiteAdmin"
-        NotifUser     = $CheckRule.NotifyUser -join ", "
+        NotifUser       = ($CheckRule.NotifyUser -join ", ")
     } | Format-List
 } else {
     Write-Host "-> ATTENTION : règle non trouvée lors de la vérification." -ForegroundColor Red
@@ -241,11 +273,11 @@ Write-Host "=== RÉSUMÉ ===" -ForegroundColor Magenta
     PolicyCréée      = $PolicyName
     RègleCréée       = $RuleName
     Mode             = "TestWithNotifications"
-    SITSurveillé     = "Credit Card Number (confiance >= 75%)"
+    SITSurveillé     = "Credit Card Number (Medium)"
     Workloads        = "Exchange, SharePoint, OneDrive"
     ActionBlocage    = "Aucune (mode test)"
     RapportIncident  = "Oui (SiteAdmin)"
-    NotifUtilisateur = "Oui (LastModifiedBy)"
+    NotifUtilisateur = "Oui (LastModifier)"
     DistribStatus    = if ($CheckPolicy) { $CheckPolicy.DistributionStatus } else { "Non vérifié" }
 } | Format-List
 
@@ -260,11 +292,11 @@ Remove-Variable BasePolicyName, PolicyName, BaseRuleName, RuleName, Counter,
                 -ErrorAction SilentlyContinue
 
 # ========================================================================================
-# FERMETURE
+# FERMETURE — RESET DE SESSION TOTAL
 # ========================================================================================
-# On ne ferme PAS la session IPPSSession ici — les exos 4b, 4c, 4d, 4e
-# s'appuient sur la même connexion et sont souvent exécutés dans la foulée.
-# Fermeture manuelle en fin de session :
-#   Get-PSSession | Remove-PSSession
-Write-Host "Session IPPSSession conservée pour les exos suivants." -ForegroundColor Magenta
-Write-Host "Fermeture manuelle : Get-PSSession | Remove-PSSession`n" -ForegroundColor Gray
+# Même logique qu'à l'ouverture : on purge tout, sans exception.
+# Disconnect-ExchangeOnline d'abord (fermeture propre côté service),
+# puis Remove-PSSession pour les sessions résiduelles en mémoire locale.
+Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue
+Get-PSSession | Remove-PSSession
+Write-Host "Sessions fermées proprement." -ForegroundColor Magenta
