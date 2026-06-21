@@ -6,10 +6,17 @@
 # département après coup, il entre ou sort automatiquement du périmètre, sans toucher à
 # la policy qui consomme ce scope (cf. 5f).
 #
-# Piège de syntaxe : -FilterConditions n'est PAS une chaîne OPATH simple comme pour les
-# groupes dynamiques Entra (cf. 4b, "(user.department -eq 'X')"). C'est une hashtable
+# Piège de syntaxe n°1 : -FilterConditions n'est PAS une chaîne OPATH simple comme pour
+# les groupes dynamiques Entra (cf. 4b, "(user.department -eq 'X')"). C'est une hashtable
 # structurée : { Conditions = @(@{Value=...; Operator=...; Name=...}); Conjunction = "And" }.
-# Les deux syntaxes ne sont pas interchangeables malgré la ressemblance conceptuelle.
+#
+# Piège n°2 (rencontré en test réel, bug confirmé côté Microsoft) : -FilterConditions
+# échoue de façon répétée sur ce tenant avec "Unexpected value type for key 'Conditions'.
+# Expected type: System.Object[]" — y compris en suivant l'exemple officiel Microsoft
+# Learn au mot près. Confirmé par un autre administrateur en ligne ayant buté sur
+# exactement la même erreur avec le même exemple officiel. Solution : -RawQuery, un
+# parameter set alternatif qui accepte une simple chaîne OPATH et contourne le chemin
+# de code buggué de -FilterConditions. Voir détail à l'étape 3.
 #
 # Propagation lente : il peut falloir jusqu'à 5 jours pour que la liste de membres se
 # peuple — la création du scope est immédiate, son contenu réel ne l'est pas. On valide
@@ -59,23 +66,30 @@ if (-not $MatchingUsers) {
 }
 
 # --- ÉTAPE 3 : Création de l'Adaptive Scope ---
-# FilterConditions : structure obligatoire, pas une chaîne. Un seul critère ici donc pas
-# de tableau de Conditions imbriqué (cf. note d'en-tête pour la syntaxe à conditions multiples).
-$FilterConditions = @{
-    Conditions = @{
-        Value    = $TargetDepartment
-        Operator = "Equals"
-        Name     = "Department"
-    }
-    Conjunction = "And"
-}
+#
+# CORRECTIF POST-DEBUG (changement de paramètre, pas de syntaxe) :
+# -FilterConditions a été abandonné après 3 échecs successifs sur ce tenant, TOUS avec
+# variantes du même message "Unexpected value type for key 'Conditions'. Expected type:
+# System.Object[]" ou une erreur d'énumération .NET — y compris en suivant l'exemple
+# officiel Microsoft Learn au mot près. Recherche confirmée : au moins un autre
+# administrateur a rencontré EXACTEMENT cette erreur en suivant l'exemple officiel
+# (practical365.com, commentaire "Even the example in [Microsoft Learn] doesn't work.
+# I've reported the issue to Microsoft"). Ce n'est donc pas une erreur de syntaxe de
+# notre côté — la cmdlet a un bug connu sur le parsing de -FilterConditions.
+#
+# -RawQuery est un parameter set ALTERNATIF et MUTUELLEMENT EXCLUSIF avec
+# -FilterConditions (on ne peut pas utiliser les deux). Il attend une simple chaîne
+# OPATH — exactement la même syntaxe que celle utilisée pour les groupes dynamiques
+# Entra en 4b ("(user.department -eq 'X')"), sans la structure hashtable imbriquée
+# qui pose problème. Contourne le bug en évitant complètement le chemin de code buggué.
+$RawQuery = "Department -eq '$TargetDepartment'"
 
 try {
     $NewScope = New-AdaptiveScope `
-        -Name             $ScopeName `
-        -LocationType     "User" `
-        -FilterConditions $FilterConditions `
-        -Comment          "Exo 5d — Périmètre dynamique département Legal." `
+        -Name         $ScopeName `
+        -LocationType "User" `
+        -RawQuery     $RawQuery `
+        -Comment      "Exo 5d — Périmètre dynamique département Legal." `
         -ErrorAction Stop
 
     Write-Host "3. Scope créé : $($NewScope.Name)`n" -ForegroundColor Green
@@ -118,7 +132,7 @@ Write-Host "Utilisation : cf. exo 5f (Retention Policy avec Adaptive Scope).`n" 
 
 # --- NETTOYAGE MÉMOIRE ---
 Remove-Variable BaseScopeName, ScopeName, Counter, TargetDepartment, MatchingUsers,
-                FilterConditions, NewScope, CheckScope `
+                RawQuery, NewScope, CheckScope `
                 -ErrorAction SilentlyContinue
 
 # --- FERMETURE ---
