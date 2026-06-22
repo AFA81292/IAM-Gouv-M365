@@ -576,6 +576,11 @@ Remove-AdaptiveScope -Identity "Nom-du-scope" -Confirm:$false
 * [Exo 6c : Audit du tenant — Audit Retention Policies et Content Searches](./06_Audit_ContentSearch/exo6c-audit-tenant.ps1)
   * Objectif : Lister les Audit Retention Policies existantes, les Content Searches du tenant et leur statut — vue d'ensemble de la posture d'audit et de recherche.
   * Connexion requise : `Connect-IPPSSession`
+ * [Exo 6d : eDiscovery Case + Hold sur mailbox ciblée](./06_Audit_ContentSearch/exo6d-ediscovery-hold.ps1)
+  * Objectif : Créer un eDiscovery Case, poser un Hold sur la mailbox `shepard@0n4mg.onmicrosoft.com` — blocage de toute suppression pendant la durée de l'investigation, indépendamment des Retention Policies en place.
+  * Connexion requise : `Connect-IPPSSession` + `Connect-ExchangeOnline` (vérification mailbox uniquement)
+  * Licence requise : Microsoft Purview eDiscovery Standard (inclus E3/E5)
+  * Prérequis : mailbox Shepard provisionnée (licence E5 assignée + première connexion OWA)
 
 <details>
 <summary>Note technique — Insider Risk Management et DSPM for AI non couverts en script</summary>
