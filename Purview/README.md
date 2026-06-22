@@ -67,8 +67,6 @@ Remove-DlpSensitiveInformationTypeRulePackage -Identity "Nom-du-package"
 # Supprimer un SIT fingerprint
 Remove-DlpSensitiveInformationType -Identity "Nom-du-SIT-fingerprint"
 
-# Fermer proprement toutes les sessions PowerShell
-Get-PSSession | Remove-PSSession
 ```
 
 </details>
@@ -131,8 +129,6 @@ Get-LabelPolicy | Select-Object Name, Labels, ExchangeLocation
 # Lister toutes les politiques d'auto-labeling
 Get-AutoSensitivityLabelPolicy | Select-Object Name, Mode, AutoLabelingWorkload
 
-# Fermer proprement toutes les sessions PowerShell
-Get-PSSession | Remove-PSSession
 ```
 
 </details>
@@ -258,8 +254,7 @@ Remove-DlpCompliancePolicy -Identity "Nom-de-la-policy" -Confirm:$false
 # Supprimer une Transport Rule
 Remove-TransportRule -Identity "Nom-de-la-rule" -Confirm:$false
 
-# Fermer proprement toutes les sessions (Exchange Online ET Security & Compliance)
-Get-PSSession | Remove-PSSession
+
 ```
 
 </details>
@@ -397,8 +392,6 @@ Set-DlpComplianceRule -Identity "Nom-de-la-règle" -Disabled $true
 Remove-DlpComplianceRule -Identity "Nom-de-la-règle" -Confirm:$false
 Remove-DlpCompliancePolicy -Identity "Nom-de-la-policy" -Confirm:$false
 
-# Fermer proprement les sessions
-Get-PSSession | Remove-PSSession
 ```
 
 </details>
@@ -565,8 +558,6 @@ Remove-ComplianceTag -Identity "Nom-du-label" -Confirm:$false
 # Supprimer un Adaptive Scope
 Remove-AdaptiveScope -Identity "Nom-du-scope" -Confirm:$false
 
-# Fermer proprement toutes les sessions
-Get-PSSession | Remove-PSSession
 ```
 
 </details>
@@ -645,9 +636,17 @@ Get-PSSession | Remove-PSSession
 <summary>Commandes utiles en une ligne — Audit et Content Search</summary>
 
 ```powershell
-# Lister toutes les Audit Retention Policies par priorité
+# Lister toutes les ARPs par priorité — pas de -Identity sur cette cmdlet,
+# le filtre par nom se fait obligatoirement via Where-Object
 Get-UnifiedAuditLogRetentionPolicy | Sort-Object Priority |
     Select-Object Name, RecordTypes, RetentionDuration, Priority
+
+# Chercher une ARP par nom
+Get-UnifiedAuditLogRetentionPolicy | Where-Object { $_.Name -eq "Nom-de-la-policy" }
+
+# Filtrer par RecordType (seul filtre natif de la cmdlet)
+Get-UnifiedAuditLogRetentionPolicy -RecordType ExchangeAdmin |
+    Select-Object Name, RetentionDuration, Priority
 
 # Filtrer les Audit Retention Policies par type d'activité
 Get-UnifiedAuditLogRetentionPolicy -RecordType ExchangeAdmin |
@@ -668,8 +667,6 @@ Start-ComplianceSearch -Identity "Nom-de-la-search"
 # Supprimer une Content Search
 Remove-ComplianceSearch -Identity "Nom-de-la-search" -Confirm:$false
 
-# Fermer proprement toutes les sessions
-Get-PSSession | Remove-PSSession
 ```
 
 </details>
