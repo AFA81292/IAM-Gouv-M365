@@ -2,35 +2,38 @@
 # Exercice 6d : eDiscovery Case + Hold sur mailbox ciblée
 # ========================================================================================
 # eDiscovery = processus légal de collecte et conservation de preuves numériques.
-# Dans Purview, il se décompose en deux niveaux :
+# Dans Purview, deux niveaux :
 #   - eDiscovery Standard (inclus E3/E5) : cases, holds, searches, exports basiques
 #   - eDiscovery Premium (inclus E5)     : analyse avancée, custodians, review sets
 #
-# Ce script couvre eDiscovery Standard — le niveau pertinent pour un tenant dev E5.
+# Ce script couvre eDiscovery Standard.
 #
 # Différence Hold vs Retention Policy :
-#   Retention Policy (chap. 05) : règle de fond appliquée à un périmètre — conserve
-#   le contenu X ans selon une politique de gouvernance préétablie.
-#   eDiscovery Hold              : blocage ciblé posé dans le cadre d'une enquête —
-#   empêche la suppression du contenu d'une mailbox/site SPÉCIFIQUE pendant
-#   la durée de l'investigation. Le hold prime sur toute politique de suppression.
+#   Retention Policy (chap. 05) : règle de fond, gouvernance préétablie —
+#   conserve le contenu X ans selon une politique générale.
+#   eDiscovery Hold              : blocage ciblé dans le cadre d'une enquête —
+#   empêche toute suppression sur une mailbox SPÉCIFIQUE pendant l'investigation.
+#   Le hold prime sur toute politique de suppression automatique.
 #
 # Cas d'usage réel :
 #   RH signale qu'un employé est suspecté de fuite de données.
-#   L'équipe sécurité ouvre un case, pose un hold sur sa mailbox,
-#   lance une Content Search pour collecter les preuves, exporte pour le juridique.
-#   Le hold garantit que rien ne peut être supprimé pendant l'enquête —
-#   même si une Retention Policy prévoyait une suppression automatique.
+#   Sécurité ouvre un case, pose un hold sur sa mailbox, lance une Content Search,
+#   exporte pour le juridique. Le hold garantit que rien ne peut être supprimé
+#   pendant l'enquête — même si une Retention Policy prévoyait une suppression.
 #
-# PRÉREQUIS : la mailbox shepard@0n4mg.onmicrosoft.com doit exister.
-#   Si elle n'est pas encore provisionnée :
-#   1. Assigner une licence E5 à Shepard depuis Entra portal
-#   2. Se connecter à outlook.office.com avec le compte Shepard
-#   3. Attendre 5-15 minutes
-#   4. Vérifier : Connect-ExchangeOnline puis Get-Mailbox -Identity "shepard@0n4mg.onmicrosoft.com"
+# ARCHITECTURE SESSION — même logique que 6b :
+#   Les cmdlets eDiscovery (*-ComplianceCase, *-CaseHoldPolicy, *-CaseHoldRule)
+#   ne sont chargées QUE si la session IPPSSession est ouverte avec
+#   -EnableSearchOnlySession. Sans ce flag, les cmdlets sont introuvables
+#   ("not recognized as a name of a cmdlet") même si le module est bien installé.
+#   Contrairement à 6b qui nécessitait deux sessions (New- sans flag, Start- avec),
+#   ici TOUTES les opérations nécessitent le flag — une seule session suffit.
 #
-# Module requis : ExchangeOnlineManagement
-# Connexion     : Connect-IPPSSession
+#   Vérification mailbox : nécessite Connect-ExchangeOnline séparément,
+#   car Exchange Online et IPPSSession sont deux endpoints distincts.
+#
+# Module requis : ExchangeOnlineManagement >= 3.9.0
+# Connexion     : Connect-ExchangeOnline (check mailbox) + Connect-IPPSSession -EnableSearchOnlySession
 # Licence       : Microsoft Purview eDiscovery Standard (inclus E3/E5)
 # ========================================================================================
 
@@ -38,20 +41,17 @@
 Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue
 Get-PSSession | Remove-PSSession
 $env:MSAL_ENABLE_WAM = "0"
-Connect-IPPSSession -UserPrincipalName GeptorAdmin@0n4mg.onmicrosoft.com
 
 # ========================================================================================
-# ÉTAPE 1 : Vérification du prérequis mailbox
+# ÉTAPE 1 : Vérification du prérequis mailbox (Connect-ExchangeOnline)
 # ========================================================================================
 # Un hold posé sur une mailbox inexistante se crée sans erreur mais ne protège rien.
-# On vérifie l'existence avant de continuer — si absente, on sort proprement avec
-# un message explicite plutôt qu'un résultat silencieusement vide.
+# On vérifie l'existence avant de continuer.
+# Cette vérification nécessite Connect-ExchangeOnline — pas IPPSSession.
 Write-Host "1. Vérification de la mailbox cible..." -ForegroundColor Cyan
 
 $TargetMailbox = "shepard@0n4mg.onmicrosoft.com"
 
-# La vérification d'existence d'une mailbox nécessite Connect-ExchangeOnline,
-# pas Connect-IPPSSession. On ouvre une seconde connexion pour ce check uniquement.
 Connect-ExchangeOnline -UserPrincipalName GeptorAdmin@0n4mg.onmicrosoft.com -ShowBanner:$false
 
 $MailboxCheck = Get-Mailbox -Identity $TargetMailbox -ErrorAction SilentlyContinue
@@ -67,20 +67,33 @@ if (-not $MailboxCheck) {
 
 Write-Host "-> Mailbox confirmée : $($MailboxCheck.PrimarySmtpAddress)`n" -ForegroundColor Green
 
-# On ferme Exchange Online — le reste du script utilise uniquement IPPSSession.
+# Fermeture Exchange Online — le reste utilise uniquement IPPSSession.
 Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue
+Get-PSSession | Remove-PSSession
+Start-Sleep -Seconds 2
+
+# ========================================================================================
+# OUVERTURE SESSION IPPS — avec -EnableSearchOnlySession (obligatoire)
+# ========================================================================================
+# Sans ce flag, *-ComplianceCase et *-CaseHoldPolicy ne sont pas chargées —
+# elles retournent "not recognized as a name of a cmdlet" même avec le bon module.
+# Avec le flag, le module charge un ensemble de fonctions supplémentaires depuis
+# un endpoint Microsoft dédié eDiscovery (cpfdwebservicecloudapp.net).
+Write-Host "Ouverture session IPPSSession avec -EnableSearchOnlySession..." -ForegroundColor Gray
+Connect-IPPSSession -UserPrincipalName GeptorAdmin@0n4mg.onmicrosoft.com -EnableSearchOnlySession
 
 # ========================================================================================
 # ÉTAPE 2 : Recherche d'un nom disponible pour le Case (auto-incrément)
 # ========================================================================================
-# "Lazarus" = le projet de résurrection de Shepard dans Mass Effect 2 —
-# approprié pour un case d'investigation sur ce personnage.
-Write-Host "2. Recherche d'un nom disponible pour le Case..." -ForegroundColor Cyan
+# "Lazarus" = le projet de résurrection de Shepard dans Mass Effect 2.
+Write-Host "`n2. Recherche d'un nom disponible pour le Case..." -ForegroundColor Cyan
 
 $BaseCaseName = "CASE-ProjectLazarus-Shepard"
 $CaseName     = $BaseCaseName
 $Counter      = 2
 
+# Get-ComplianceCase supporte -Identity — lookup direct possible ici,
+# contrairement à Get-UnifiedAuditLogRetentionPolicy (exo 6a).
 while (Get-ComplianceCase -Identity $CaseName -ErrorAction SilentlyContinue) {
     Write-Host "   '$CaseName' déjà pris — test avec suffixe -v$Counter..." -ForegroundColor Yellow
     $CaseName = "$BaseCaseName-v$Counter"
@@ -92,11 +105,10 @@ Write-Host "-> Nom retenu pour le Case : '$CaseName'`n" -ForegroundColor Green
 # ========================================================================================
 # ÉTAPE 3 : Création du eDiscovery Case
 # ========================================================================================
-# Le Case est le conteneur de l'investigation — il regroupe holds, searches et exports.
+# Le Case est le conteneur de l'investigation — regroupe holds, searches et exports.
 # Tout hold doit être rattaché à un Case : impossible de créer un hold orphelin.
 #
-# -CaseType "eDiscovery" : eDiscovery Standard. L'autre valeur est "AdvancedEdiscovery"
-#   (eDiscovery Premium, fonctionnalités supplémentaires mais même licence E5 ici).
+# -CaseType "eDiscovery" : Standard. Autre valeur : "AdvancedEdiscovery" (Premium).
 Write-Host "3. Création du eDiscovery Case '$CaseName'..." -ForegroundColor Cyan
 
 try {
@@ -110,7 +122,6 @@ try {
 }
 catch {
     Write-Host "-> Échec de la création du Case : $_" -ForegroundColor Red
-    Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue
     Get-PSSession | Remove-PSSession
     return
 }
@@ -135,25 +146,21 @@ Write-Host "-> Nom retenu pour le Hold : '$HoldName'`n" -ForegroundColor Green
 # ========================================================================================
 # ÉTAPE 5 : Création du Hold sur la mailbox
 # ========================================================================================
-# Un eDiscovery Hold se crée en deux objets distincts, dans cet ordre obligatoire :
+# Un eDiscovery Hold = deux objets distincts, ordre obligatoire :
 #
-#   1. CaseHoldPolicy  : définit QUI est mis en hold (la mailbox ou le site ciblé)
+#   1. CaseHoldPolicy  : QUI est mis en hold (mailbox ou site ciblé)
 #      → New-CaseHoldPolicy
 #
-#   2. CaseHoldRule    : définit QUOI est retenu (query KQL optionnelle — vide = tout)
+#   2. CaseHoldRule    : QUOI est retenu (query KQL — vide = tout le contenu)
 #      → New-CaseHoldRule
 #
-# Sans CaseHoldRule, le hold existe mais ne retient rien — objet incomplet.
-# C'est le même pattern Policy + Rule que DLP et Retention.
-#
-# --- CRÉATION DE LA CASEHOLDPOLICY ---
-# -Case : nom du Case auquel ce hold est rattaché (obligatoire).
-# -ExchangeLocation : mailbox(es) à mettre en hold. Accepte UPN ou adresse SMTP.
-#   Autres paramètres de location disponibles (non utilisés ici) :
-#   -SharePointLocation : sites SharePoint
-#   -PublicFolderLocation : dossiers publics Exchange
+# Sans CaseHoldRule, la policy existe mais ne retient rien — objet incomplet.
+# Même pattern Policy + Rule que DLP (chap. 04) et Retention (chap. 05).
 Write-Host "5. Création du Hold '$HoldName'..." -ForegroundColor Cyan
 
+# --- CaseHoldPolicy ---
+# -Case : Case auquel ce hold est rattaché (obligatoire).
+# -ExchangeLocation : mailbox(es) à mettre en hold.
 try {
     $NewHoldPolicy = New-CaseHoldPolicy `
         -Name             $HoldName `
@@ -165,36 +172,29 @@ try {
     Write-Host "-> CaseHoldPolicy créée : $($NewHoldPolicy.Name)" -ForegroundColor Green
 }
 catch {
-    Write-Host "-> Échec de la création de la CaseHoldPolicy : $_" -ForegroundColor Red
-    Write-Host "   Le Case '$CaseName' a été créé mais reste sans hold." -ForegroundColor Yellow
-    Write-Host "   Supprimer via : Remove-ComplianceCase -Identity '$CaseName' -Confirm:`$false" -ForegroundColor Yellow
-    Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue
+    Write-Host "-> Échec CaseHoldPolicy : $_" -ForegroundColor Red
+    Write-Host "   Supprimer le case : Remove-ComplianceCase -Identity '$CaseName' -Confirm:`$false" -ForegroundColor Yellow
     Get-PSSession | Remove-PSSession
     return
 }
 
-# --- CRÉATION DE LA CASEHOLDRULE ---
-# -Policy : nom de la CaseHoldPolicy parente (obligatoire).
-# -ContentMatchQuery "" : query KQL vide = hold sur TOUT le contenu de la mailbox.
-#   On pourrait restreindre : "CONFIDENTIEL" ne retiendrait que les éléments
-#   contenant ce mot-clé. Sans query = filet maximal, posture standard en investigation.
-#
-# Note : pas de paramètre -Name obligatoire sur New-CaseHoldRule —
-# le nom est généré automatiquement par Purview à partir du nom de la policy.
+# --- CaseHoldRule ---
+# -ContentMatchQuery "" : query vide = hold sur TOUT le contenu de la mailbox.
+# On pourrait restreindre : "CONFIDENTIEL" ne retiendrait que les éléments
+# contenant ce mot-clé. Sans query = filet maximal, posture standard en investigation.
 try {
     $NewHoldRule = New-CaseHoldRule `
-        -Policy             $HoldName `
-        -ContentMatchQuery  "" `
+        -Policy            $HoldName `
+        -ContentMatchQuery "" `
         -ErrorAction Stop
 
     Write-Host "-> CaseHoldRule créée : $($NewHoldRule.Name)`n" -ForegroundColor Green
 }
 catch {
-    Write-Host "-> Échec de la création de la CaseHoldRule : $_" -ForegroundColor Red
-    Write-Host "   La CaseHoldPolicy '$HoldName' existe mais est sans règle — hold incomplet." -ForegroundColor Yellow
+    Write-Host "-> Échec CaseHoldRule : $_" -ForegroundColor Red
+    Write-Host "   Policy créée mais sans règle — hold incomplet." -ForegroundColor Yellow
     Write-Host "   Supprimer policy : Remove-CaseHoldPolicy -Identity '$HoldName' -Confirm:`$false" -ForegroundColor Yellow
     Write-Host "   Supprimer case   : Remove-ComplianceCase -Identity '$CaseName' -Confirm:`$false" -ForegroundColor Yellow
-    Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue
     Get-PSSession | Remove-PSSession
     return
 }
@@ -205,9 +205,9 @@ catch {
 Write-Host "6. Vérification depuis le backend Purview..." -ForegroundColor Cyan
 Start-Sleep -Seconds 5
 
-$CheckCase   = Get-ComplianceCase    -Identity $CaseName -ErrorAction SilentlyContinue
-$CheckPolicy = Get-CaseHoldPolicy    -Identity $HoldName -ErrorAction SilentlyContinue
-$CheckRule   = Get-CaseHoldRule      -Policy   $HoldName -ErrorAction SilentlyContinue
+$CheckCase   = Get-ComplianceCase   -Identity $CaseName -ErrorAction SilentlyContinue
+$CheckPolicy = Get-CaseHoldPolicy   -Identity $HoldName -ErrorAction SilentlyContinue
+$CheckRule   = Get-CaseHoldRule     -Policy   $HoldName -ErrorAction SilentlyContinue
 
 if ($CheckCase) {
     Write-Host "-> Case confirmé :" -ForegroundColor Green
@@ -224,11 +224,11 @@ if ($CheckCase) {
 if ($CheckPolicy) {
     Write-Host "-> CaseHoldPolicy confirmée :" -ForegroundColor Green
     [PSCustomObject]@{
-        Nom              = $CheckPolicy.Name
-        CaseParent       = $CheckPolicy.Case
-        Activé           = $CheckPolicy.Enabled
-        Mailbox          = ($CheckPolicy.ExchangeLocation -join ", ")
-        DistribStatus    = $CheckPolicy.DistributionStatus
+        Nom           = $CheckPolicy.Name
+        CaseParent    = $CheckPolicy.Case
+        Activé        = $CheckPolicy.Enabled
+        Mailbox       = ($CheckPolicy.ExchangeLocation -join ", ")
+        DistribStatus = $CheckPolicy.DistributionStatus
     } | Format-List
 } else {
     Write-Host "-> ATTENTION : CaseHoldPolicy non trouvée lors de la vérification." -ForegroundColor Red
@@ -251,17 +251,16 @@ if ($CheckRule) {
 Write-Host "=== RÉSUMÉ ===" -ForegroundColor Magenta
 
 [PSCustomObject]@{
-    CaseCréé         = $CaseName
-    HoldCréé         = $HoldName
-    MailboxProtégée  = $TargetMailbox
-    PortéeHold       = "Tout le contenu (query vide)"
-    DistribStatus    = if ($CheckPolicy) { $CheckPolicy.DistributionStatus } else { "Non vérifié" }
-    EffetImmédiat    = "Non — propagation vers Exchange Online en cours (quelques minutes)"
-    PrioritéHold     = "Prime sur toute Retention Policy de suppression automatique"
+    CaseCréé        = $CaseName
+    HoldCréé        = $HoldName
+    MailboxProtégée = $TargetMailbox
+    PortéeHold      = "Tout le contenu (query vide)"
+    DistribStatus   = if ($CheckPolicy) { $CheckPolicy.DistributionStatus } else { "Non vérifié" }
+    PrioritéHold    = "Prime sur toute Retention Policy de suppression automatique"
+    PropagationHold = "Effective une fois DistributionStatus = 'Success' (quelques minutes)"
 } | Format-List
 
 Write-Host "Info : DistributionStatus 'Pending' est normal à la création." -ForegroundColor Yellow
-Write-Host "Le hold est effectif une fois DistributionStatus = 'Success'.`n" -ForegroundColor Yellow
 
 # ========================================================================================
 # NETTOYAGE MÉMOIRE
