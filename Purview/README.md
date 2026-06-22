@@ -173,12 +173,12 @@ Get-PSSession | Remove-PSSession
 >    (Exchange Online) a pourtant validé — `EncryptRMSTemplate` semble attendre le nom
 >    canonique anglais (`Encrypt`) même sur un tenant FR. 3c teste plusieurs candidats
 >    avant d'abandonner plutôt que de fixer une seule valeur supposée.
-
+> 
 > Conséquence pratique : ce chapitre combine deux surfaces de cmdlets — Exchange Online
 > (Transport Rules, résolution de template) et Security & Compliance (SIT, DLP Rules).
 > `Connect-IPPSSession` et `Connect-ExchangeOnline` sont tous les deux nécessaires dès
 > qu'un exo touche les deux mondes (cas de 3c).
-
+> 
 </details>
 
 <details>
@@ -314,7 +314,7 @@ Deux erreurs courantes rencontrées lors de la création de règles DLP par scri
 > logique de groupe (plusieurs labels en OR), il faut passer par `-AdvancedRule` en JSON brut, avec
 > chaque label déclaré comme `{name = "<GUID>"; type = "Sensitivity"}` dans un bloc
 > `Condition.SubConditions[].Value[].groups[].labels[]`.
-
+> 
 > Deuxième piège, une fois le JSON de base fonctionnel : `-BlockAccess` combiné à un blocage externe
 > (`BlockAccessScope PerUser`) **rejette la règle à la création** si `-AccessScope NotInOrganization`
 > est passé en paramètre séparé du cmdlet. Le moteur DLP exige que cette condition soit elle-même
@@ -322,7 +322,7 @@ Deux erreurs courantes rencontrées lors de la création de règles DLP par scri
 > relié par `Operator: "And"` — pas en paramètre externe. Message d'erreur obtenu :
 > `"you must have 'Content is shared with people outside your organization' as the first condition
 > along with operator 'AND' with other conditions or groups in your rule"`.
-
+> 
 > Conséquence pratique : dès qu'une condition DLP combine plusieurs critères avec une logique
 > explicite (labels en OR, label + accès externe en AND, exceptions), réflexe direct vers
 > `-AdvancedRule` + hashtable PowerShell + `ConvertTo-Json -Depth 100` — ne jamais chercher de
@@ -335,7 +335,7 @@ Deux erreurs courantes rencontrées lors de la création de règles DLP par scri
 
 > Ces deux fonctionnalités sont couvertes en cours (sections 6 et 5 du SC-401) mais
 > ne sont pas scriptables de manière utile sur un tenant dev sans infrastructure.
-
+> 
 > **Endpoint DLP** nécessite des devices Windows 10/11 onboardés dans Microsoft Defender
 > for Endpoint (MDE). Sans machine enrôlée dans MDE, les policies Endpoint DLP sont
 > créables via PowerShell (`DeviceDlpRestrictions` comme workload) mais ne déclenchent
@@ -343,7 +343,7 @@ Deux erreurs courantes rencontrées lors de la création de règles DLP par scri
 > domaine et onboardée dans MDE, l'exercice se résume à créer un objet vide.
 > Configuration et monitoring : **Microsoft Purview portal > Data loss prevention >
 > Endpoint DLP settings**.
-
+> 
 > **Adaptive Protection** couple DLP et Insider Risk Management — le niveau de risque
 > d'un utilisateur (calculé par IRM) fait varier dynamiquement les règles DLP qui
 > s'appliquent à lui. Requires : licence E5 Compliance ou E5 Security + au moins une
@@ -444,7 +444,7 @@ Get-PSSession | Remove-PSSession
 >    applique une règle de rétention **directement** sur un périmètre (mailboxes, sites), sans
 >    passer par un label sélectionnable par l'utilisateur — rétention "de fond", invisible,
 >    appliquée à tout le contenu du périmètre.
-
+> 
 > Les trois partagent la même cmdlet racine `New-RetentionCompliancePolicy`, ce qui prête à
 > confusion : c'est la présence ou non de `-RetentionRuleType` et de `New-RetentionComplianceRule`
 > qui distinguent "publier un label" de "appliquer une rétention de fond".
@@ -460,12 +460,12 @@ Get-PSSession | Remove-PSSession
 > **A.** `-ExchangeLocation` et `-TeamsChannelLocation`/`-TeamsChatLocation` sont deux parameter
 > sets mutuellement exclusifs de `New-RetentionCompliancePolicy` ("Default" vs "TeamLocation") —
 > impossible de les combiner dans un même appel, quelle que soit la combinaison de paramètres.
-
+> 
 > **B.** Teams n'est de toute façon plus géré par cette cmdlet du tout. Microsoft l'a migré vers
 > `New-AppRetentionCompliancePolicy` / `New-AppRetentionComplianceRule`, une famille séparée sans
 > paramètre de location dédié. Le ciblage se fait via `-Applications`, syntaxe
 > `"LocationType:NomApplication"`.
-
+> 
 > **C.** Au sein de cette nouvelle famille, canaux (`MicrosoftTeamsChannelMessages`) et chats
 > (`TeamsChatUserInteractions`) appartiennent à deux **scenario groups** distincts — une policy
 > ne peut couvrir qu'un seul scenario group. Combiner les deux dans un même `-Applications`
@@ -473,12 +473,12 @@ Get-PSSession | Remove-PSSession
 > `-ExchangeLocation "All"` reste obligatoire même dans ces policies Teams (`New-AppRetentionCompliancePolicy`)
 > car il sert à identifier le **scope utilisateur** (qui est concerné), indépendamment du fait
 > que le contenu réel soit dans Teams et non Exchange.
-
+> 
 > **Conséquence :** "Exchange + Teams" = trois policies distinctes sur deux familles de cmdlets
 > différentes. Ce n'est pas spécifique à un tenant dev — c'est l'architecture actuelle de
 > Microsoft pour la rétention, en migration depuis les anciens emplacements
 > (`*-RetentionCompliance`) vers les nouveaux (`*-AppRetentionCompliance`).
-
+> 
 > **Impact sur l'audit (5g) :** `Get-RetentionCompliancePolicy` ne retourne PAS les App
 > Retention Policies — il faut systématiquement appeler `Get-AppRetentionCompliancePolicy`
 > en plus, sinon les policies Teams sont silencieusement absentes de l'audit.
@@ -492,7 +492,7 @@ Get-PSSession | Remove-PSSession
 > scopes de type `User` avec un seul critère : l'erreur `InvalidFilterConditionsException` se
 > produit même en suivant l'exemple officiel au mot près. Confirmé par au moins un autre
 > administrateur ayant reporté le problème à Microsoft.
-
+> 
 > Solution de contournement : `-RawQuery`, un parameter set alternatif qui accepte une chaîne
 > OPATH simple (`"Department -eq 'Legal'"`) et évite complètement le chemin de code buggué.
 > M�me syntaxe que les groupes dynamiques Entra (exo 4b côté Entra), ce qui la rend
@@ -591,13 +591,13 @@ Get-PSSession | Remove-PSSession
 
 > Ces deux fonctionnalités sont couvertes en cours (sections 8 et 10 du SC-401) mais
 > n'exposent aucune surface PowerShell utile sur un tenant dev.
-
+> 
 > **Insider Risk Management** est entièrement GUI — la création de politiques, la gestion
 > des alertes/cas, les templates et les notices sont exclusivement dans le portail Purview.
 > Les quelques cmdlets disponibles (`Get-InsiderRiskPolicy`) sont en lecture seule et ne
 > permettent pas de créer ni de déclencher des scénarios de test sans signaux utilisateur réels.
 > Configuration : **Microsoft Purview portal > Insider Risk Management**.
-
+> 
 > **DSPM for AI** (Data Security Posture Management for AI) est également 100% GUI et
 > nécessite des prérequis lourds (Azure VM, configuration de connecteurs, propagation de
 > plusieurs heures) qui dépassent le périmètre d'un exercice PowerShell autonome sur tenant
@@ -609,16 +609,16 @@ Get-PSSession | Remove-PSSession
 <summary>Note technique — Audit Retention Policy vs Retention Policy</summary>
 
 > Ces deux objets portent des noms proches mais sont radicalement différents :
-
+> 
 > - **Retention Policy** (chapitre 05) : agit sur le **contenu** (emails, fichiers SharePoint, messages
 >   Teams) — contrôle combien de temps un document ou un message est conservé avant d'être supprimé.
 >   Cmdlets : `*-RetentionCompliancePolicy`, `*-AppRetentionCompliancePolicy`.
-
+> 
 > - **Audit Retention Policy** (chapitre 06) : agit sur les **logs d'audit** — contrôle combien de
 >   temps les traces d'activité (qui a fait quoi, quand) sont conservées dans le journal d'audit
 >   unifié. Par défaut : 90 jours (180 jours avec E5). Une policy custom peut aller jusqu'à 10 ans.
 >   Cmdlets : `*-UnifiedAuditLogRetentionPolicy`.
-
+> 
 > Confusion fréquente en entretien et en production : "on a une policy de rétention" peut désigner
 > l'un ou l'autre selon le contexte. L'objet cible (contenu vs trace d'activité) et la cmdlet
 > (`CompliancePolicy` vs `AuditLogRetentionPolicy`) tranchent sans ambiguïté.
@@ -632,7 +632,7 @@ Get-PSSession | Remove-PSSession
 > être **unique** sur tout le tenant — deux policies avec la même priorité sont refusées à la
 > création. La valeur 1 est la priorité la plus haute, 10000 la plus basse. Le script 6a détecte
 > automatiquement les priorités déjà utilisées et incrémente depuis 100 pour éviter la collision.
-
+> 
 > Les policies créées via PowerShell avec des `RecordTypes` hors du tableau de bord GUI standard
 > **n'apparaissent pas dans l'interface** Microsoft Purview — elles sont uniquement consultables
 > et modifiables via `Get-/Set-UnifiedAuditLogRetentionPolicy`. Ce n'est pas un bug de propagation,
