@@ -188,11 +188,11 @@ Get-PSSession | Remove-PSSession
 > de lecture (logo, couleurs, message d'accueil) et la **révocation de message** — possibilité de
 > couper l'accès à un mail déjà envoyé, à condition que le destinataire le lise via le portail web OME
 > (pas via un client Outlook natif qui aurait déchiffré le message localement).
-
+> 
 > En production, AME est pertinent dans deux scénarios : communications client avec charte graphique
 > imposée (secteur bancaire, juridique) et gestion de crise post-envoi (mauvais destinataire,
 > fuite de données — on révoque l'accès avant que le mail soit lu).
-
+> 
 > AME nécessite une licence **E5 ou l'add-on Microsoft Purview Message Encryption**. Les cmdlets
 > existent (`New-OMEConfiguration`, `Set-OMEConfiguration`) mais le résultat n'est vérifiable
 > qu'en envoyant un vrai mail et en inspectant le portail de lecture — hors périmètre d'un
@@ -289,19 +289,19 @@ Get-PSSession | Remove-PSSession
 <details>
 <summary>Note technique — pièges de syntaxe sur l'API REST Purview v3 (module >= 3.x)</summary>
 
-Deux erreurs courantes rencontrées lors de la création de règles DLP par script :
-
-1. **Clés de la hashtable SIT en minuscules strictes.** `-ContentContainsSensitiveInformation`
-   attend un tableau de hashtables avec les clés `name`, `mincount`, `minconfidence` —
-   tout en minuscules, valeurs numériques passées comme strings (`"1"`, `"75"`).
-   Les clés PascalCase (`Name`, `MinCount`) documentées sur Microsoft Learn sont rejetées
-   avec `InvalidContentContainsSensitiveInformationException`.
-
-2. **`-NotifyUser` : `"LastModifier"`, pas `"LastModifiedBy"`.** La documentation
-   Microsoft Learn indique `"LastModifiedBy"` — la valeur réellement acceptée par
-   l'API REST v3 est `"LastModifier"` (sans "By"). L'erreur retournée est
-   `InvalidSmtpAddressInNotifyUserActionException` avec la liste des valeurs valides :
-   `Owner`, `LastModifier`, `SiteAdmin`, ou une adresse SMTP explicite.
+> Deux erreurs courantes rencontrées lors de la création de règles DLP par script :
+> 
+> 1. **Clés de la hashtable SIT en minuscules strictes.** `-ContentContainsSensitiveInformation`
+>    attend un tableau de hashtables avec les clés `name`, `mincount`, `minconfidence` —
+>    tout en minuscules, valeurs numériques passées comme strings (`"1"`, `"75"`).
+>    Les clés PascalCase (`Name`, `MinCount`) documentées sur Microsoft Learn sont rejetées
+>    avec `InvalidContentContainsSensitiveInformationException`.
+> 
+> 2. **`-NotifyUser` : `"LastModifier"`, pas `"LastModifiedBy"`.** La documentation
+>    Microsoft Learn indique `"LastModifiedBy"` — la valeur réellement acceptée par
+>    l'API REST v3 est `"LastModifier"` (sans "By"). L'erreur retournée est
+>    `InvalidSmtpAddressInNotifyUserActionException` avec la liste des valeurs valides :
+>    `Owner`, `LastModifier`, `SiteAdmin`, ou une adresse SMTP explicite.
 
 </details>
 
@@ -456,7 +456,7 @@ Get-PSSession | Remove-PSSession
 
 > Couvrir "Exchange + Teams" en une seule Retention Policy est impossible. Trois contraintes
 > distinctes découvertes par test réel sur ce tenant, dans cet ordre :
-
+> 
 > **A.** `-ExchangeLocation` et `-TeamsChannelLocation`/`-TeamsChatLocation` sont deux parameter
 > sets mutuellement exclusifs de `New-RetentionCompliancePolicy` ("Default" vs "TeamLocation") —
 > impossible de les combiner dans un même appel, quelle que soit la combinaison de paramètres.
