@@ -672,6 +672,23 @@ Start-ComplianceSearch -Identity "Nom-de-la-search"
 # Supprimer une Content Search
 Remove-ComplianceSearch -Identity "Nom-de-la-search" -Confirm:$false
 
+# Lister tous les eDiscovery Cases
+Get-ComplianceCase -All | Select-Object Name, Status, CaseType
+
+# Lister les holds d'un Case
+Get-CaseHoldPolicy -Case "Nom-du-case" | Select-Object Name, Enabled, DistributionStatus
+
+# Lister la règle d'un hold (query KQL appliquée)
+Get-CaseHoldRule -Policy "Nom-du-hold" | Select-Object Name, ContentMatchQuery
+
+# Désactiver un hold sans supprimer le case
+Set-CaseHoldPolicy -Identity "Nom-du-hold" -Enabled $false
+
+# Supprimer un hold — ordre obligatoire : règle → policy → case
+Remove-CaseHoldRule   -Identity "Nom-de-la-règle" -Confirm:$false
+Remove-CaseHoldPolicy -Identity "Nom-du-hold"     -Confirm:$false
+Remove-ComplianceCase -Identity "Nom-du-case"     -Confirm:$false
+
 ```
 
 </details>
