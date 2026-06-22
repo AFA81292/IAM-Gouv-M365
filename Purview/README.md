@@ -34,11 +34,11 @@ Connect-ExchangeOnline -UserPrincipalName GeptorAdmin@0n4mg.onmicrosoft.com
 <details>
 <summary>Note technique — EDM et Trainable Classifiers non couverts en script</summary>
 
-EDM (Exact Data Match) et les Trainable Classifiers ne sont pas couverts en script.
-EDM nécessite un pipeline d'upload de données sensibles (hash, schéma, fichier source) dont le temps
-de propagation dépasse plusieurs heures et dont la surface PowerShell est essentiellement un wrapper
-autour d'appels Graph non documentés publiquement. Les Trainable Classifiers sont intégralement GUI —
-aucune cmdlet de création n'est exposée. Ces deux fonctionnalités sont gérées via le portail Purview.
+> EDM (Exact Data Match) et les Trainable Classifiers ne sont pas couverts en script.
+> EDM nécessite un pipeline d'upload de données sensibles (hash, schéma, fichier source) dont le temps
+> de propagation dépasse plusieurs heures et dont la surface PowerShell est essentiellement un wrapper
+> autour d'appels Graph non documentés publiquement. Les Trainable Classifiers sont intégralement GUI —
+> aucune cmdlet de création n'est exposée. Ces deux fonctionnalités sont gérées via le portail Purview.
 
 </details>
 
@@ -96,13 +96,13 @@ Get-PSSession | Remove-PSSession
 <details>
 <summary>Note technique — label group, islabelgroup vs isparent</summary>
 
-Un label group n'est pas un objet distinct côté API Purview —
-c'est un label dont la propriété `islabelgroup` est positionnée à `True` via
-`-AdvancedSettings`. La propriété `isparent`, elle, n'est PAS settable manuellement :
-elle est calculée automatiquement par le service dès qu'un sublabel référence ce
-label comme parent via `-ParentId`. Testé et confirmé par investigation directe
-(tentatives de force via `-AdvancedSettings` et `Set-Label` post-création, sans
-succès — la documentation Microsoft Learn sur ce point est ambiguë/incomplète).
+> Un label group n'est pas un objet distinct côté API Purview —
+> c'est un label dont la propriété `islabelgroup` est positionnée à `True` via
+> `-AdvancedSettings`. La propriété `isparent`, elle, n'est PAS settable manuellement :
+> elle est calculée automatiquement par le service dès qu'un sublabel référence ce
+> label comme parent via `-ParentId`. Testé et confirmé par investigation directe
+> (tentatives de force via `-AdvancedSettings` et `Set-Label` post-création, sans
+> succès — la documentation Microsoft Learn sur ce point est ambiguë/incomplète).
 
 </details>
 
@@ -162,54 +162,54 @@ Get-PSSession | Remove-PSSession
 <details>
 <summary>Note technique — trois pièges d'architecture rencontrés sur ce chapitre</summary>
 
-1. **Noms de templates localisés.** `Get-RMSTemplate` retourne des noms selon la langue
-   du tenant (`Chiffrer`/`Ne pas transférer` en FR, pas `Encrypt`/`Do Not Forward`). Les
-   scripts résolvent le nom dynamiquement (filtre EN+FR) plutôt que de le fixer en dur.
-2. **`MessageContainsDataClassifications` est déprécié dans les Transport Rules** depuis
-   novembre 2023 (aka.ms/NoDLPinETRs). Le chiffrement déclenché par SIT (3c) utilise donc
-   une **DLP Compliance Rule** (`EncryptRMSTemplate`), pas une Transport Rule — objet
-   différent, à interroger séparément en audit (3e).
-3. **Le backend DLP n'accepte pas toujours le nom localisé** que `Get-RMSTemplate`
-   (Exchange Online) a pourtant validé — `EncryptRMSTemplate` semble attendre le nom
-   canonique anglais (`Encrypt`) même sur un tenant FR. 3c teste plusieurs candidats
-   avant d'abandonner plutôt que de fixer une seule valeur supposée.
+> 1. **Noms de templates localisés.** `Get-RMSTemplate` retourne des noms selon la langue
+>    du tenant (`Chiffrer`/`Ne pas transférer` en FR, pas `Encrypt`/`Do Not Forward`). Les
+>    scripts résolvent le nom dynamiquement (filtre EN+FR) plutôt que de le fixer en dur.
+> 2. **`MessageContainsDataClassifications` est déprécié dans les Transport Rules** depuis
+>    novembre 2023 (aka.ms/NoDLPinETRs). Le chiffrement déclenché par SIT (3c) utilise donc
+>    une **DLP Compliance Rule** (`EncryptRMSTemplate`), pas une Transport Rule — objet
+>    différent, à interroger séparément en audit (3e).
+> 3. **Le backend DLP n'accepte pas toujours le nom localisé** que `Get-RMSTemplate`
+>    (Exchange Online) a pourtant validé — `EncryptRMSTemplate` semble attendre le nom
+>    canonique anglais (`Encrypt`) même sur un tenant FR. 3c teste plusieurs candidats
+>    avant d'abandonner plutôt que de fixer une seule valeur supposée.
 
-Conséquence pratique : ce chapitre combine deux surfaces de cmdlets — Exchange Online
-(Transport Rules, résolution de template) et Security & Compliance (SIT, DLP Rules).
-`Connect-IPPSSession` et `Connect-ExchangeOnline` sont tous les deux nécessaires dès
-qu'un exo touche les deux mondes (cas de 3c).
+> Conséquence pratique : ce chapitre combine deux surfaces de cmdlets — Exchange Online
+> (Transport Rules, résolution de template) et Security & Compliance (SIT, DLP Rules).
+> `Connect-IPPSSession` et `Connect-ExchangeOnline` sont tous les deux nécessaires dès
+> qu'un exo touche les deux mondes (cas de 3c).
 
 </details>
 
 <details>
 <summary>Note technique — Advanced Message Encryption (AME)</summary>
 
-AME ajoute deux capacités au-dessus de l'OME standard : le **branding personnalisé** du portail
-de lecture (logo, couleurs, message d'accueil) et la **révocation de message** — possibilité de
-couper l'accès à un mail déjà envoyé, à condition que le destinataire le lise via le portail web OME
-(pas via un client Outlook natif qui aurait déchiffré le message localement).
+> AME ajoute deux capacités au-dessus de l'OME standard : le **branding personnalisé** du portail
+> de lecture (logo, couleurs, message d'accueil) et la **révocation de message** — possibilité de
+> couper l'accès à un mail déjà envoyé, à condition que le destinataire le lise via le portail web OME
+> (pas via un client Outlook natif qui aurait déchiffré le message localement).
 
-En production, AME est pertinent dans deux scénarios : communications client avec charte graphique
-imposée (secteur bancaire, juridique) et gestion de crise post-envoi (mauvais destinataire,
-fuite de données — on révoque l'accès avant que le mail soit lu).
+> En production, AME est pertinent dans deux scénarios : communications client avec charte graphique
+> imposée (secteur bancaire, juridique) et gestion de crise post-envoi (mauvais destinataire,
+> fuite de données — on révoque l'accès avant que le mail soit lu).
 
-AME nécessite une licence **E5 ou l'add-on Microsoft Purview Message Encryption**. Les cmdlets
-existent (`New-OMEConfiguration`, `Set-OMEConfiguration`) mais le résultat n'est vérifiable
-qu'en envoyant un vrai mail et en inspectant le portail de lecture — hors périmètre d'un
-exercice PowerShell autonome sur tenant dev. Configuration via :
-**Exchange Admin Center > Mail flow > Message encryption**.
+> AME nécessite une licence **E5 ou l'add-on Microsoft Purview Message Encryption**. Les cmdlets
+> existent (`New-OMEConfiguration`, `Set-OMEConfiguration`) mais le résultat n'est vérifiable
+> qu'en envoyant un vrai mail et en inspectant le portail de lecture — hors périmètre d'un
+> exercice PowerShell autonome sur tenant dev. Configuration via :
+> **Exchange Admin Center > Mail flow > Message encryption**.
 
 </details>
 
 <details>
 <summary>Note technique — chevauchement label / DLP rule sur un même SIT</summary>
 
-Le SIT `Cerberus Corp - Numéro de Badge Interne` (créé en 1b) déclenche désormais deux
-mécanismes indépendants : l'auto-labeling de l'exo 2e (qui applique un label potentiellement
-chiffrant) et la DLP Compliance Rule de l'exo 3c (qui applique un template RMS directement).
-Les deux peuvent s'exécuter sur le même message. Ce n'est pas un défaut de configuration —
-c'est un point réel de précédence à connaître en environnement de production, documenté ici
-plutôt que découvert en audit.
+> Le SIT `Cerberus Corp - Numéro de Badge Interne` (créé en 1b) déclenche désormais deux
+> mécanismes indépendants : l'auto-labeling de l'exo 2e (qui applique un label potentiellement
+> chiffrant) et la DLP Compliance Rule de l'exo 3c (qui applique un template RMS directement).
+> Les deux peuvent s'exécuter sur le même message. Ce n'est pas un défaut de configuration —
+> c'est un point réel de précédence à connaître en environnement de production, documenté ici
+> plutôt que découvert en audit.
 
 </details>
 
@@ -308,49 +308,49 @@ Deux erreurs courantes rencontrées lors de la création de règles DLP par scri
 <details>
 <summary>Note technique — piège -AdvancedRule pour une condition basée sur un label (exo 4c)</summary>
 
-Il n'existe **pas** de paramètre `-ContentContainsSensitiveLabel` sur `New-DlpComplianceRule`
-— première erreur rencontrée, un nom halluciné par analogie avec `-ContentContainsSensitiveInformation`
-(qui, lui, existe mais seulement pour une condition SIT simple à une valeur). Dès qu'on veut une
-logique de groupe (plusieurs labels en OR), il faut passer par `-AdvancedRule` en JSON brut, avec
-chaque label déclaré comme `{name = "<GUID>"; type = "Sensitivity"}` dans un bloc
-`Condition.SubConditions[].Value[].groups[].labels[]`.
+> Il n'existe **pas** de paramètre `-ContentContainsSensitiveLabel` sur `New-DlpComplianceRule`
+> — première erreur rencontrée, un nom halluciné par analogie avec `-ContentContainsSensitiveInformation`
+> (qui, lui, existe mais seulement pour une condition SIT simple à une valeur). Dès qu'on veut une
+> logique de groupe (plusieurs labels en OR), il faut passer par `-AdvancedRule` en JSON brut, avec
+> chaque label déclaré comme `{name = "<GUID>"; type = "Sensitivity"}` dans un bloc
+> `Condition.SubConditions[].Value[].groups[].labels[]`.
 
-Deuxième piège, une fois le JSON de base fonctionnel : `-BlockAccess` combiné à un blocage externe
-(`BlockAccessScope PerUser`) **rejette la règle à la création** si `-AccessScope NotInOrganization`
-est passé en paramètre séparé du cmdlet. Le moteur DLP exige que cette condition soit elle-même
-encodée **dans** le JSON, comme un second `SubConditions` au même niveau que le bloc labels,
-relié par `Operator: "And"` — pas en paramètre externe. Message d'erreur obtenu :
-`"you must have 'Content is shared with people outside your organization' as the first condition
-along with operator 'AND' with other conditions or groups in your rule"`.
+> Deuxième piège, une fois le JSON de base fonctionnel : `-BlockAccess` combiné à un blocage externe
+> (`BlockAccessScope PerUser`) **rejette la règle à la création** si `-AccessScope NotInOrganization`
+> est passé en paramètre séparé du cmdlet. Le moteur DLP exige que cette condition soit elle-même
+> encodée **dans** le JSON, comme un second `SubConditions` au même niveau que le bloc labels,
+> relié par `Operator: "And"` — pas en paramètre externe. Message d'erreur obtenu :
+> `"you must have 'Content is shared with people outside your organization' as the first condition
+> along with operator 'AND' with other conditions or groups in your rule"`.
 
-Conséquence pratique : dès qu'une condition DLP combine plusieurs critères avec une logique
-explicite (labels en OR, label + accès externe en AND, exceptions), réflexe direct vers
-`-AdvancedRule` + hashtable PowerShell + `ConvertTo-Json -Depth 100` — ne jamais chercher de
-paramètre nommé "intuitivement" pour ce niveau de complexité.
+> Conséquence pratique : dès qu'une condition DLP combine plusieurs critères avec une logique
+> explicite (labels en OR, label + accès externe en AND, exceptions), réflexe direct vers
+> `-AdvancedRule` + hashtable PowerShell + `ConvertTo-Json -Depth 100` — ne jamais chercher de
+> paramètre nommé "intuitivement" pour ce niveau de complexité.
 
 </details>
 
 <details>
 <summary>Note technique — Endpoint DLP et Adaptive Protection non couverts en script</summary>
 
-Ces deux fonctionnalités sont couvertes en cours (sections 6 et 5 du SC-401) mais
-ne sont pas scriptables de manière utile sur un tenant dev sans infrastructure.
+> Ces deux fonctionnalités sont couvertes en cours (sections 6 et 5 du SC-401) mais
+> ne sont pas scriptables de manière utile sur un tenant dev sans infrastructure.
 
-**Endpoint DLP** nécessite des devices Windows 10/11 onboardés dans Microsoft Defender
-for Endpoint (MDE). Sans machine enrôlée dans MDE, les policies Endpoint DLP sont
-créables via PowerShell (`DeviceDlpRestrictions` comme workload) mais ne déclenchent
-rien — aucune activité endpoint à surveiller. Sur un tenant dev sans VM jointe au
-domaine et onboardée dans MDE, l'exercice se résume à créer un objet vide.
-Configuration et monitoring : **Microsoft Purview portal > Data loss prevention >
-Endpoint DLP settings**.
+> **Endpoint DLP** nécessite des devices Windows 10/11 onboardés dans Microsoft Defender
+> for Endpoint (MDE). Sans machine enrôlée dans MDE, les policies Endpoint DLP sont
+> créables via PowerShell (`DeviceDlpRestrictions` comme workload) mais ne déclenchent
+> rien — aucune activité endpoint à surveiller. Sur un tenant dev sans VM jointe au
+> domaine et onboardée dans MDE, l'exercice se résume à créer un objet vide.
+> Configuration et monitoring : **Microsoft Purview portal > Data loss prevention >
+> Endpoint DLP settings**.
 
-**Adaptive Protection** couple DLP et Insider Risk Management — le niveau de risque
-d'un utilisateur (calculé par IRM) fait varier dynamiquement les règles DLP qui
-s'appliquent à lui. Requires : licence E5 Compliance ou E5 Security + au moins une
-politique IRM active avec des alertes. Sans utilisateurs réels générant des signaux
-de risque (exfiltration, téléchargement massif, etc.), la fonctionnalité reste
-théorique. Configuration : **Microsoft Purview portal > Insider Risk Management >
-Adaptive Protection**.
+> **Adaptive Protection** couple DLP et Insider Risk Management — le niveau de risque
+> d'un utilisateur (calculé par IRM) fait varier dynamiquement les règles DLP qui
+> s'appliquent à lui. Requires : licence E5 Compliance ou E5 Security + au moins une
+> politique IRM active avec des alertes. Sans utilisateurs réels générant des signaux
+> de risque (exfiltration, téléchargement massif, etc.), la fonctionnalité reste
+> théorique. Configuration : **Microsoft Purview portal > Insider Risk Management >
+> Adaptive Protection**.
 
 </details>
 
@@ -433,85 +433,85 @@ Get-PSSession | Remove-PSSession
 <details>
 <summary>Note technique — trois objets à ne pas confondre</summary>
 
-1. **Retention Label** : l'étiquette elle-même (`New-ComplianceTag`). Définit la durée, le point
-   de départ (création/modification/étiquetage/événement), et le comportement à expiration
-   (suppression, review, ou rien). Un label seul n'a **aucun effet** tant qu'il n'est pas publié.
-2. **Retention Label Policy** (`New-RetentionCompliancePolicy` + `-RetentionRuleType`) : publie
-   un ou plusieurs labels vers des emplacements (Exchange, SharePoint...) pour les rendre
-   sélectionnables par les utilisateurs ou par de l'auto-application. C'est un mécanisme de
-   **diffusion**, pas de rétention en soi.
-3. **Retention Policy** (`New-RetentionCompliancePolicy` sans label associé + `New-RetentionComplianceRule`) :
-   applique une règle de rétention **directement** sur un périmètre (mailboxes, sites), sans
-   passer par un label sélectionnable par l'utilisateur — rétention "de fond", invisible,
-   appliquée à tout le contenu du périmètre.
+> 1. **Retention Label** : l'étiquette elle-même (`New-ComplianceTag`). Définit la durée, le point
+>    de départ (création/modification/étiquetage/événement), et le comportement à expiration
+>    (suppression, review, ou rien). Un label seul n'a **aucun effet** tant qu'il n'est pas publié.
+> 2. **Retention Label Policy** (`New-RetentionCompliancePolicy` + `-RetentionRuleType`) : publie
+>    un ou plusieurs labels vers des emplacements (Exchange, SharePoint...) pour les rendre
+>    sélectionnables par les utilisateurs ou par de l'auto-application. C'est un mécanisme de
+>    **diffusion**, pas de rétention en soi.
+> 3. **Retention Policy** (`New-RetentionCompliancePolicy` sans label associé + `New-RetentionComplianceRule`) :
+>    applique une règle de rétention **directement** sur un périmètre (mailboxes, sites), sans
+>    passer par un label sélectionnable par l'utilisateur — rétention "de fond", invisible,
+>    appliquée à tout le contenu du périmètre.
 
-Les trois partagent la même cmdlet racine `New-RetentionCompliancePolicy`, ce qui prête à
-confusion : c'est la présence ou non de `-RetentionRuleType` et de `New-RetentionComplianceRule`
-qui distinguent "publier un label" de "appliquer une rétention de fond".
+> Les trois partagent la même cmdlet racine `New-RetentionCompliancePolicy`, ce qui prête à
+> confusion : c'est la présence ou non de `-RetentionRuleType` et de `New-RetentionComplianceRule`
+> qui distinguent "publier un label" de "appliquer une rétention de fond".
 
 </details>
 
 <details>
 <summary>Note technique — architecture AppRetentionCompliance (Teams, IA) découverte en 5e</summary>
 
-Couvrir "Exchange + Teams" en une seule Retention Policy est impossible. Trois contraintes
-distinctes découvertes par test réel sur ce tenant, dans cet ordre :
+> Couvrir "Exchange + Teams" en une seule Retention Policy est impossible. Trois contraintes
+> distinctes découvertes par test réel sur ce tenant, dans cet ordre :
 
-**A.** `-ExchangeLocation` et `-TeamsChannelLocation`/`-TeamsChatLocation` sont deux parameter
-sets mutuellement exclusifs de `New-RetentionCompliancePolicy` ("Default" vs "TeamLocation") —
-impossible de les combiner dans un même appel, quelle que soit la combinaison de paramètres.
+> **A.** `-ExchangeLocation` et `-TeamsChannelLocation`/`-TeamsChatLocation` sont deux parameter
+> sets mutuellement exclusifs de `New-RetentionCompliancePolicy` ("Default" vs "TeamLocation") —
+> impossible de les combiner dans un même appel, quelle que soit la combinaison de paramètres.
 
-**B.** Teams n'est de toute façon plus géré par cette cmdlet du tout. Microsoft l'a migré vers
-`New-AppRetentionCompliancePolicy` / `New-AppRetentionComplianceRule`, une famille séparée sans
-paramètre de location dédié. Le ciblage se fait via `-Applications`, syntaxe
-`"LocationType:NomApplication"`.
+> **B.** Teams n'est de toute façon plus géré par cette cmdlet du tout. Microsoft l'a migré vers
+> `New-AppRetentionCompliancePolicy` / `New-AppRetentionComplianceRule`, une famille séparée sans
+> paramètre de location dédié. Le ciblage se fait via `-Applications`, syntaxe
+> `"LocationType:NomApplication"`.
 
-**C.** Au sein de cette nouvelle famille, canaux (`MicrosoftTeamsChannelMessages`) et chats
-(`TeamsChatUserInteractions`) appartiennent à deux **scenario groups** distincts — une policy
-ne peut couvrir qu'un seul scenario group. Combiner les deux dans un même `-Applications`
-déclenche : `"Applications must belong to a single known scenario group"`. De plus,
-`-ExchangeLocation "All"` reste obligatoire même dans ces policies Teams (`New-AppRetentionCompliancePolicy`)
-car il sert à identifier le **scope utilisateur** (qui est concerné), indépendamment du fait
-que le contenu réel soit dans Teams et non Exchange.
+> **C.** Au sein de cette nouvelle famille, canaux (`MicrosoftTeamsChannelMessages`) et chats
+> (`TeamsChatUserInteractions`) appartiennent à deux **scenario groups** distincts — une policy
+> ne peut couvrir qu'un seul scenario group. Combiner les deux dans un même `-Applications`
+> déclenche : `"Applications must belong to a single known scenario group"`. De plus,
+> `-ExchangeLocation "All"` reste obligatoire même dans ces policies Teams (`New-AppRetentionCompliancePolicy`)
+> car il sert à identifier le **scope utilisateur** (qui est concerné), indépendamment du fait
+> que le contenu réel soit dans Teams et non Exchange.
 
-**Conséquence :** "Exchange + Teams" = trois policies distinctes sur deux familles de cmdlets
-différentes. Ce n'est pas spécifique à un tenant dev — c'est l'architecture actuelle de
-Microsoft pour la rétention, en migration depuis les anciens emplacements
-(`*-RetentionCompliance`) vers les nouveaux (`*-AppRetentionCompliance`).
+> **Conséquence :** "Exchange + Teams" = trois policies distinctes sur deux familles de cmdlets
+> différentes. Ce n'est pas spécifique à un tenant dev — c'est l'architecture actuelle de
+> Microsoft pour la rétention, en migration depuis les anciens emplacements
+> (`*-RetentionCompliance`) vers les nouveaux (`*-AppRetentionCompliance`).
 
-**Impact sur l'audit (5g) :** `Get-RetentionCompliancePolicy` ne retourne PAS les App
-Retention Policies — il faut systématiquement appeler `Get-AppRetentionCompliancePolicy`
-en plus, sinon les policies Teams sont silencieusement absentes de l'audit.
+> **Impact sur l'audit (5g) :** `Get-RetentionCompliancePolicy` ne retourne PAS les App
+> Retention Policies — il faut systématiquement appeler `Get-AppRetentionCompliancePolicy`
+> en plus, sinon les policies Teams sont silencieusement absentes de l'audit.
 
 </details>
 
 <details>
 <summary>Note technique — piège -FilterConditions sur New-AdaptiveScope (5d)</summary>
 
-`-FilterConditions` (structure hashtable documentée dans Microsoft Learn) est buggué pour les
-scopes de type `User` avec un seul critère : l'erreur `InvalidFilterConditionsException` se
-produit même en suivant l'exemple officiel au mot près. Confirmé par au moins un autre
-administrateur ayant reporté le problème à Microsoft.
+> `-FilterConditions` (structure hashtable documentée dans Microsoft Learn) est buggué pour les
+> scopes de type `User` avec un seul critère : l'erreur `InvalidFilterConditionsException` se
+> produit même en suivant l'exemple officiel au mot près. Confirmé par au moins un autre
+> administrateur ayant reporté le problème à Microsoft.
 
-Solution de contournement : `-RawQuery`, un parameter set alternatif qui accepte une chaîne
-OPATH simple (`"Department -eq 'Legal'"`) et évite complètement le chemin de code buggué.
-M�me syntaxe que les groupes dynamiques Entra (exo 4b côté Entra), ce qui la rend
-familière. Sur ce tenant (test réel), `-RawQuery` fonctionne sans problème là où
-`-FilterConditions` échoue systématiquement.
+> Solution de contournement : `-RawQuery`, un parameter set alternatif qui accepte une chaîne
+> OPATH simple (`"Department -eq 'Legal'"`) et évite complètement le chemin de code buggué.
+> M�me syntaxe que les groupes dynamiques Entra (exo 4b côté Entra), ce qui la rend
+> familière. Sur ce tenant (test réel), `-RawQuery` fonctionne sans problème là où
+> `-FilterConditions` échoue systématiquement.
 
 </details>
 
 <details>
 <summary>Note technique — précédence en cas de policies en conflit</summary>
 
-Si plusieurs Retention Policies (5e statique + 5f adaptive) ou Retention Label Policies
-s'appliquent au même contenu avec des durées différentes, Purview suit des règles de
-précédence fixes : rétention la plus longue l'emporte sur suppression automatique,
-"ne pas supprimer" l'emporte sur "supprimer", explicite (label appliqué manuellement)
-l'emporte sur implicite (policy de fond). `Get-ComplianceTag -Identity "Nom" | Format-List`
-et le **Policy Lookup** du portail Purview (Records Management > Policy lookup) permettent
-de vérifier concrètement quelle règle s'applique à un élément donné — non scriptable
-(100% GUI, aucune cmdlet n'expose cette résolution).
+> Si plusieurs Retention Policies (5e statique + 5f adaptive) ou Retention Label Policies
+> s'appliquent au même contenu avec des durées différentes, Purview suit des règles de
+> précédence fixes : rétention la plus longue l'emporte sur suppression automatique,
+> "ne pas supprimer" l'emporte sur "supprimer", explicite (label appliqué manuellement)
+> l'emporte sur implicite (policy de fond). `Get-ComplianceTag -Identity "Nom" | Format-List`
+> et le **Policy Lookup** du portail Purview (Records Management > Policy lookup) permettent
+> de vérifier concrètement quelle règle s'applique à un élément donné — non scriptable
+> (100% GUI, aucune cmdlet n'expose cette résolution).
 
 </details>
 
@@ -589,55 +589,55 @@ Get-PSSession | Remove-PSSession
 <details>
 <summary>Note technique — Insider Risk Management et DSPM for AI non couverts en script</summary>
 
-Ces deux fonctionnalités sont couvertes en cours (sections 8 et 10 du SC-401) mais
-n'exposent aucune surface PowerShell utile sur un tenant dev.
+> Ces deux fonctionnalités sont couvertes en cours (sections 8 et 10 du SC-401) mais
+> n'exposent aucune surface PowerShell utile sur un tenant dev.
 
-**Insider Risk Management** est entièrement GUI — la création de politiques, la gestion
-des alertes/cas, les templates et les notices sont exclusivement dans le portail Purview.
-Les quelques cmdlets disponibles (`Get-InsiderRiskPolicy`) sont en lecture seule et ne
-permettent pas de créer ni de déclencher des scénarios de test sans signaux utilisateur réels.
-Configuration : **Microsoft Purview portal > Insider Risk Management**.
+> **Insider Risk Management** est entièrement GUI — la création de politiques, la gestion
+> des alertes/cas, les templates et les notices sont exclusivement dans le portail Purview.
+> Les quelques cmdlets disponibles (`Get-InsiderRiskPolicy`) sont en lecture seule et ne
+> permettent pas de créer ni de déclencher des scénarios de test sans signaux utilisateur réels.
+> Configuration : **Microsoft Purview portal > Insider Risk Management**.
 
-**DSPM for AI** (Data Security Posture Management for AI) est également 100% GUI et
-nécessite des prérequis lourds (Azure VM, configuration de connecteurs, propagation de
-plusieurs heures) qui dépassent le périmètre d'un exercice PowerShell autonome sur tenant
-dev. Configuration : **Microsoft Purview portal > Data Security Posture Management**.
+> **DSPM for AI** (Data Security Posture Management for AI) est également 100% GUI et
+> nécessite des prérequis lourds (Azure VM, configuration de connecteurs, propagation de
+> plusieurs heures) qui dépassent le périmètre d'un exercice PowerShell autonome sur tenant
+> dev. Configuration : **Microsoft Purview portal > Data Security Posture Management**.
 
 </details>
 
 <details>
 <summary>Note technique — Audit Retention Policy vs Retention Policy</summary>
 
-Ces deux objets portent des noms proches mais sont radicalement différents :
+> Ces deux objets portent des noms proches mais sont radicalement différents :
 
-- **Retention Policy** (chapitre 05) : agit sur le **contenu** (emails, fichiers SharePoint, messages
-  Teams) — contrôle combien de temps un document ou un message est conservé avant d'être supprimé.
-  Cmdlets : `*-RetentionCompliancePolicy`, `*-AppRetentionCompliancePolicy`.
+> - **Retention Policy** (chapitre 05) : agit sur le **contenu** (emails, fichiers SharePoint, messages
+>   Teams) — contrôle combien de temps un document ou un message est conservé avant d'être supprimé.
+>   Cmdlets : `*-RetentionCompliancePolicy`, `*-AppRetentionCompliancePolicy`.
 
-- **Audit Retention Policy** (chapitre 06) : agit sur les **logs d'audit** — contrôle combien de
-  temps les traces d'activité (qui a fait quoi, quand) sont conservées dans le journal d'audit
-  unifié. Par défaut : 90 jours (180 jours avec E5). Une policy custom peut aller jusqu'à 10 ans.
-  Cmdlets : `*-UnifiedAuditLogRetentionPolicy`.
+> - **Audit Retention Policy** (chapitre 06) : agit sur les **logs d'audit** — contrôle combien de
+>   temps les traces d'activité (qui a fait quoi, quand) sont conservées dans le journal d'audit
+>   unifié. Par défaut : 90 jours (180 jours avec E5). Une policy custom peut aller jusqu'à 10 ans.
+>   Cmdlets : `*-UnifiedAuditLogRetentionPolicy`.
 
-Confusion fréquente en entretien et en production : "on a une policy de rétention" peut désigner
-l'un ou l'autre selon le contexte. L'objet cible (contenu vs trace d'activité) et la cmdlet
-(`CompliancePolicy` vs `AuditLogRetentionPolicy`) tranchent sans ambiguïté.
+> Confusion fréquente en entretien et en production : "on a une policy de rétention" peut désigner
+> l'un ou l'autre selon le contexte. L'objet cible (contenu vs trace d'activité) et la cmdlet
+> (`CompliancePolicy` vs `AuditLogRetentionPolicy`) tranchent sans ambiguïté.
 
 </details>
 
 <details>
 <summary>Note technique — priorité unique obligatoire sur les Audit Retention Policies</summary>
 
-Le paramètre `-Priority` de `New-UnifiedAuditLogRetentionPolicy` est **obligatoire** et doit
-être **unique** sur tout le tenant — deux policies avec la même priorité sont refusées à la
-création. La valeur 1 est la priorité la plus haute, 10000 la plus basse. Le script 6a détecte
-automatiquement les priorités déjà utilisées et incrémente depuis 100 pour éviter la collision.
+> Le paramètre `-Priority` de `New-UnifiedAuditLogRetentionPolicy` est **obligatoire** et doit
+> être **unique** sur tout le tenant — deux policies avec la même priorité sont refusées à la
+> création. La valeur 1 est la priorité la plus haute, 10000 la plus basse. Le script 6a détecte
+> automatiquement les priorités déjà utilisées et incrémente depuis 100 pour éviter la collision.
 
-Les policies créées via PowerShell avec des `RecordTypes` hors du tableau de bord GUI standard
-**n'apparaissent pas dans l'interface** Microsoft Purview — elles sont uniquement consultables
-et modifiables via `Get-/Set-UnifiedAuditLogRetentionPolicy`. Ce n'est pas un bug de propagation,
-c'est documenté par Microsoft : les scripts PowerShell et le GUI ne couvrent pas exactement le
-même périmètre de RecordTypes.
+> Les policies créées via PowerShell avec des `RecordTypes` hors du tableau de bord GUI standard
+> **n'apparaissent pas dans l'interface** Microsoft Purview — elles sont uniquement consultables
+> et modifiables via `Get-/Set-UnifiedAuditLogRetentionPolicy`. Ce n'est pas un bug de propagation,
+> c'est documenté par Microsoft : les scripts PowerShell et le GUI ne couvrent pas exactement le
+> même périmètre de RecordTypes.
 
 </details>
 
