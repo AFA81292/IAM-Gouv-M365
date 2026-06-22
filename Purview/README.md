@@ -420,14 +420,14 @@ Get-PSSession | Remove-PSSession
 * [Exo 5d : Adaptive Scope par attribut département](./05_Retention/exo5d-adaptive-scope-department.ps1)
   * Objectif : Créer un Adaptive Scope ciblant dynamiquement les utilisateurs dont `Department -eq "Legal"` — la portée se recalcule automatiquement si des utilisateurs changent de département, contrairement à un scope statique figé à la création.
   * Connexion requise : `Connect-IPPSSession`
-* [Exo 5e : Retention Policy statique](./05_Retention/exo5e-retention-policy-static.ps1)
-  * Objectif : Créer une Retention Policy `RET-POL-Citadel-Static` — rétention 1 an sur Exchange et Teams, scope figé à la création (tous les utilisateurs/sites inclus, pas de logique dynamique).
+* [Exo 5e : Retention Policy statique — Exchange et Teams](./05_Retention/exo5e-retention-policy-static.ps1)
+  * Objectif : Créer trois Retention Policies distinctes (Exchange, Teams canaux, Teams chats) avec une rétention 1 an — découverte que l'architecture `AppRetentionCompliance` de Microsoft impose une granularité plus fine qu'attendu (voir note technique).
   * Connexion requise : `Connect-IPPSSession`
 * [Exo 5f : Retention Policy avec Adaptive Scope](./05_Retention/exo5f-retention-policy-adaptive.ps1)
-  * Objectif : Créer une seconde Retention Policy, cette fois rattachée à l'Adaptive Scope créé en 5d — démonstration du couplage scope dynamique / policy de rétention, utile pour des périmètres qui évoluent (effectifs, réorganisations) sans intervention manuelle.
+  * Objectif : Créer une Retention Policy Exchange rattachée à l'Adaptive Scope créé en 5d — démonstration du couplage scope dynamique / policy de rétention, utile pour des périmètres qui évoluent sans intervention manuelle.
   * Connexion requise : `Connect-IPPSSession`
 * [Exo 5g : Audit des labels et policies de rétention](./05_Retention/exo5g-audit-retention.ps1)
-  * Objectif : Lister les Retention Labels, Retention Label Policies, Retention Policies (statiques et adaptive), et leur état de distribution — vue d'ensemble de la posture de rétention du tenant.
+  * Objectif : Lister les Retention Labels, les Retention Policies classiques (Exchange/SharePoint), les App Retention Policies (Teams/IA) et les Adaptive Scopes — vue d'ensemble complète de la posture de rétention du tenant.
   * Connexion requise : `Connect-IPPSSession`
 
 <details>
@@ -446,9 +446,58 @@ Get-PSSession | Remove-PSSession
    appliquée à tout le contenu du périmètre.
 
 Les trois partagent la même cmdlet racine `New-RetentionCompliancePolicy`, ce qui prête à
-confusion : c'est le paramètre `-RetentionRuleType` (`ComplianceTagRetention` vs `RetentionPolicy`
-implicite selon `-Type`) et la présence ou non de `New-RetentionComplianceRule` qui distinguent
-"publier un label" de "appliquer une rétention de fond".
+confusion : c'est la présence ou non de `-RetentionRuleType` et de `New-RetentionComplianceRule`
+qui distinguent "publier un label" de "appliquer une rétention de fond".
+
+</details>
+
+<details>
+<summary>Note technique — architecture AppRetentionCompliance (Teams, IA) découverte en 5e</summary>
+
+Couvrir "Exchange + Teams" en une seule Retention Policy est impossible. Trois contraintes
+distinctes découvertes par test réel sur ce tenant, dans cet ordre :
+
+**A.** `-ExchangeLocation` et `-TeamsChannelLocation`/`-TeamsChatLocation` sont deux parameter
+sets mutuellement exclusifs de `New-RetentionCompliancePolicy` ("Default" vs "TeamLocation") —
+impossible de les combiner dans un même appel, quelle que soit la combinaison de paramètres.
+
+**B.** Teams n'est de toute façon plus géré par cette cmdlet du tout. Microsoft l'a migré vers
+`New-AppRetentionCompliancePolicy` / `New-AppRetentionComplianceRule`, une famille séparée sans
+paramètre de location dédié. Le ciblage se fait via `-Applications`, syntaxe
+`"LocationType:NomApplication"`.
+
+**C.** Au sein de cette nouvelle famille, canaux (`MicrosoftTeamsChannelMessages`) et chats
+(`TeamsChatUserInteractions`) appartiennent à deux **scenario groups** distincts — une policy
+ne peut couvrir qu'un seul scenario group. Combiner les deux dans un même `-Applications`
+déclenche : `"Applications must belong to a single known scenario group"`. De plus,
+`-ExchangeLocation "All"` reste obligatoire même dans ces policies Teams (`New-AppRetentionCompliancePolicy`)
+car il sert à identifier le **scope utilisateur** (qui est concerné), indépendamment du fait
+que le contenu réel soit dans Teams et non Exchange.
+
+**Conséquence :** "Exchange + Teams" = trois policies distinctes sur deux familles de cmdlets
+différentes. Ce n'est pas spécifique à un tenant dev — c'est l'architecture actuelle de
+Microsoft pour la rétention, en migration depuis les anciens emplacements
+(`*-RetentionCompliance`) vers les nouveaux (`*-AppRetentionCompliance`).
+
+**Impact sur l'audit (5g) :** `Get-RetentionCompliancePolicy` ne retourne PAS les App
+Retention Policies — il faut systématiquement appeler `Get-AppRetentionCompliancePolicy`
+en plus, sinon les policies Teams sont silencieusement absentes de l'audit.
+
+</details>
+
+<details>
+<summary>Note technique — piège -FilterConditions sur New-AdaptiveScope (5d)</summary>
+
+`-FilterConditions` (structure hashtable documentée dans Microsoft Learn) est buggué pour les
+scopes de type `User` avec un seul critère : l'erreur `InvalidFilterConditionsException` se
+produit même en suivant l'exemple officiel au mot près. Confirmé par au moins un autre
+administrateur ayant reporté le problème à Microsoft.
+
+Solution de contournement : `-RawQuery`, un parameter set alternatif qui accepte une chaîne
+OPATH simple (`"Department -eq 'Legal'"`) et évite complètement le chemin de code buggué.
+M�me syntaxe que les groupes dynamiques Entra (exo 4b côté Entra), ce qui la rend
+familière. Sur ce tenant (test réel), `-RawQuery` fonctionne sans problème là où
+`-FilterConditions` échoue systématiquement.
 
 </details>
 
@@ -461,9 +510,8 @@ précédence fixes : rétention la plus longue l'emporte sur suppression automat
 "ne pas supprimer" l'emporte sur "supprimer", explicite (label appliqué manuellement)
 l'emporte sur implicite (policy de fond). `Get-ComplianceTag -Identity "Nom" | Format-List`
 et le **Policy Lookup** du portail Purview (Records Management > Policy lookup) permettent
-de vérifier concrètement quelle règle s'applique à un élément donné, plutôt que de déduire
-la précédence en théorie — exo couvert par le cours mais non scriptable (Policy Lookup est
-100% GUI, aucune cmdlet n'expose cette résolution).
+de vérifier concrètement quelle règle s'applique à un élément donné — non scriptable
+(100% GUI, aucune cmdlet n'expose cette résolution).
 
 </details>
 
@@ -481,15 +529,21 @@ Get-ComplianceTag -Identity "Nom-du-label" | Format-List
 Get-RetentionCompliancePolicy | Where-Object { $_.RetentionRuleTypes -contains "ComplianceTagRetention" } |
     Select-Object Name, ExchangeLocation, SharePointLocation
 
-# Lister les Retention Policies "de fond" (sans label, scope direct)
+# Lister les Retention Policies "de fond" classiques (Exchange/SharePoint)
 Get-RetentionCompliancePolicy | Where-Object { $_.RetentionRuleTypes -notcontains "ComplianceTagRetention" } |
-    Select-Object Name, ExchangeLocation, SharePointLocation
+    Select-Object Name, ExchangeLocation, SharePointLocation, AdaptiveScopeLocation
 
-# Lister les règles de rétention associées à une policy
+# Lister les App Retention Policies (Teams/IA — famille distincte, non retournée par la commande ci-dessus)
+Get-AppRetentionCompliancePolicy | Select-Object Name, Applications
+
+# Lister les règles de rétention associées à une policy classique
 Get-RetentionComplianceRule -Policy "Nom-de-la-policy" | Select-Object Name, RetentionDuration, RetentionComplianceAction
 
+# Lister les règles d'une App Retention Policy
+Get-AppRetentionComplianceRule -Policy "Nom-de-la-policy" | Select-Object Name, RetentionDuration, RetentionComplianceAction
+
 # Lister tous les Adaptive Scopes
-Get-AdaptiveScope | Select-Object Name, AdaptiveScopeLocation
+Get-AdaptiveScope | Select-Object Name, LocationType
 
 # Afficher le détail d'un Adaptive Scope (règle de filtrage dynamique)
 Get-AdaptiveScope -Identity "Nom-du-scope" | Format-List
@@ -497,15 +551,122 @@ Get-AdaptiveScope -Identity "Nom-du-scope" | Format-List
 # Vérifier l'état de distribution d'une policy (propagation vers les emplacements)
 Get-RetentionCompliancePolicy -Identity "Nom-de-la-policy" | Select-Object Name, DistributionStatus
 
-# Supprimer une règle PUIS sa policy (ordre obligatoire)
+# Supprimer une règle PUIS sa policy classique (ordre obligatoire)
 Remove-RetentionComplianceRule -Identity "Nom-de-la-règle" -Confirm:$false
 Remove-RetentionCompliancePolicy -Identity "Nom-de-la-policy" -Confirm:$false
+
+# Supprimer une App Retention Policy (règle puis policy)
+Remove-AppRetentionComplianceRule -Identity "Nom-de-la-règle" -Confirm:$false
+Remove-AppRetentionCompliancePolicy -Identity "Nom-de-la-policy" -Confirm:$false
 
 # Supprimer un Retention Label (le retirer de toute policy de publication avant)
 Remove-ComplianceTag -Identity "Nom-du-label" -Confirm:$false
 
 # Supprimer un Adaptive Scope
 Remove-AdaptiveScope -Identity "Nom-du-scope" -Confirm:$false
+
+# Fermer proprement toutes les sessions
+Get-PSSession | Remove-PSSession
+```
+
+</details>
+
+---
+
+### 06_Audit_ContentSearch
+* [Exo 6a : Audit Retention Policy — Exchange Admin Activity](./06_Audit_ContentSearch/exo6a-audit-retention-policy.ps1)
+  * Objectif : Créer une Audit Retention Policy ciblant les activités d'administration Exchange (`ExchangeAdmin`), rétention 1 an — permet de conserver les traces d'actions à privilège élevé au-delà de la période par défaut (180 jours sans Audit Premium).
+  * Connexion requise : `Connect-IPPSSession`
+  * Licence requise : Microsoft Purview Audit (Premium, inclus E5)
+* [Exo 6b : Content Search — mailbox ciblée, date range, mot-clé](./06_Audit_ContentSearch/exo6b-content-search.ps1)
+  * Objectif : Créer et lancer une Content Search sur la mailbox `shepard@0n4mg.onmicrosoft.com`, mot-clé `CONFIDENTIEL`, plage glissante de 90 jours — récupération des statistiques de résultats (nombre d'items, taille).
+  * Connexion requise : `Connect-IPPSSession`
+  * Licence requise : Microsoft Purview eDiscovery Standard (inclus E3/E5)
+* [Exo 6c : Audit du tenant — Audit Retention Policies et Content Searches](./06_Audit_ContentSearch/exo6c-audit-tenant.ps1)
+  * Objectif : Lister les Audit Retention Policies existantes, les Content Searches du tenant et leur statut — vue d'ensemble de la posture d'audit et de recherche.
+  * Connexion requise : `Connect-IPPSSession`
+
+<details>
+<summary>Note technique — Insider Risk Management et DSPM for AI non couverts en script</summary>
+
+Ces deux fonctionnalités sont couvertes en cours (sections 8 et 10 du SC-401) mais
+n'exposent aucune surface PowerShell utile sur un tenant dev.
+
+**Insider Risk Management** est entièrement GUI — la création de politiques, la gestion
+des alertes/cas, les templates et les notices sont exclusivement dans le portail Purview.
+Les quelques cmdlets disponibles (`Get-InsiderRiskPolicy`) sont en lecture seule et ne
+permettent pas de créer ni de déclencher des scénarios de test sans signaux utilisateur réels.
+Configuration : **Microsoft Purview portal > Insider Risk Management**.
+
+**DSPM for AI** (Data Security Posture Management for AI) est également 100% GUI et
+nécessite des prérequis lourds (Azure VM, configuration de connecteurs, propagation de
+plusieurs heures) qui dépassent le périmètre d'un exercice PowerShell autonome sur tenant
+dev. Configuration : **Microsoft Purview portal > Data Security Posture Management**.
+
+</details>
+
+<details>
+<summary>Note technique — Audit Retention Policy vs Retention Policy</summary>
+
+Ces deux objets portent des noms proches mais sont radicalement différents :
+
+- **Retention Policy** (chapitre 05) : agit sur le **contenu** (emails, fichiers SharePoint, messages
+  Teams) — contrôle combien de temps un document ou un message est conservé avant d'être supprimé.
+  Cmdlets : `*-RetentionCompliancePolicy`, `*-AppRetentionCompliancePolicy`.
+
+- **Audit Retention Policy** (chapitre 06) : agit sur les **logs d'audit** — contrôle combien de
+  temps les traces d'activité (qui a fait quoi, quand) sont conservées dans le journal d'audit
+  unifié. Par défaut : 90 jours (180 jours avec E5). Une policy custom peut aller jusqu'à 10 ans.
+  Cmdlets : `*-UnifiedAuditLogRetentionPolicy`.
+
+Confusion fréquente en entretien et en production : "on a une policy de rétention" peut désigner
+l'un ou l'autre selon le contexte. L'objet cible (contenu vs trace d'activité) et la cmdlet
+(`CompliancePolicy` vs `AuditLogRetentionPolicy`) tranchent sans ambiguïté.
+
+</details>
+
+<details>
+<summary>Note technique — priorité unique obligatoire sur les Audit Retention Policies</summary>
+
+Le paramètre `-Priority` de `New-UnifiedAuditLogRetentionPolicy` est **obligatoire** et doit
+être **unique** sur tout le tenant — deux policies avec la même priorité sont refusées à la
+création. La valeur 1 est la priorité la plus haute, 10000 la plus basse. Le script 6a détecte
+automatiquement les priorités déjà utilisées et incrémente depuis 100 pour éviter la collision.
+
+Les policies créées via PowerShell avec des `RecordTypes` hors du tableau de bord GUI standard
+**n'apparaissent pas dans l'interface** Microsoft Purview — elles sont uniquement consultables
+et modifiables via `Get-/Set-UnifiedAuditLogRetentionPolicy`. Ce n'est pas un bug de propagation,
+c'est documenté par Microsoft : les scripts PowerShell et le GUI ne couvrent pas exactement le
+même périmètre de RecordTypes.
+
+</details>
+
+<details>
+<summary>Commandes utiles en une ligne — Audit et Content Search</summary>
+
+```powershell
+# Lister toutes les Audit Retention Policies par priorité
+Get-UnifiedAuditLogRetentionPolicy | Sort-Object Priority |
+    Select-Object Name, RecordTypes, RetentionDuration, Priority
+
+# Filtrer les Audit Retention Policies par type d'activité
+Get-UnifiedAuditLogRetentionPolicy -RecordType ExchangeAdmin |
+    Select-Object Name, RetentionDuration, Priority
+
+# Supprimer une Audit Retention Policy
+Remove-UnifiedAuditLogRetentionPolicy -Identity "Nom-de-la-policy" -Confirm:$false
+
+# Lister toutes les Content Searches avec leur statut
+Get-ComplianceSearch | Select-Object Name, Status, Items, Size | Sort-Object Name
+
+# Relire le statut et les résultats d'une Content Search spécifique
+Get-ComplianceSearch -Identity "Nom-de-la-search" | Format-List Status, Items, Size, SuccessResults
+
+# Lancer une Content Search déjà créée
+Start-ComplianceSearch -Identity "Nom-de-la-search"
+
+# Supprimer une Content Search
+Remove-ComplianceSearch -Identity "Nom-de-la-search" -Confirm:$false
 
 # Fermer proprement toutes les sessions
 Get-PSSession | Remove-PSSession
