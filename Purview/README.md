@@ -19,6 +19,11 @@ Certains exercices (Message Encryption, Transport Rules) nécessitent également
 Connect-ExchangeOnline -UserPrincipalName GeptorAdmin@0n4mg.onmicrosoft.com
 ```
 
+Les exercices eDiscovery (6b, 6d) nécessitent le flag `-EnableSearchOnlySession` sur `Connect-IPPSSession` :
+```powershell
+Connect-IPPSSession -UserPrincipalName GeptorAdmin@0n4mg.onmicrosoft.com -EnableSearchOnlySession
+```
+
 ## Index des Exercices (1 fichier = 1 exo)
 
 ### 01_Data_Classification
@@ -67,6 +72,8 @@ Remove-DlpSensitiveInformationTypeRulePackage -Identity "Nom-du-package"
 # Supprimer un SIT fingerprint
 Remove-DlpSensitiveInformationType -Identity "Nom-du-SIT-fingerprint"
 
+# Fermer proprement toutes les sessions PowerShell
+Get-PSSession | Remove-PSSession
 ```
 
 </details>
@@ -129,6 +136,8 @@ Get-LabelPolicy | Select-Object Name, Labels, ExchangeLocation
 # Lister toutes les politiques d'auto-labeling
 Get-AutoSensitivityLabelPolicy | Select-Object Name, Mode, AutoLabelingWorkload
 
+# Fermer proprement toutes les sessions PowerShell
+Get-PSSession | Remove-PSSession
 ```
 
 </details>
@@ -169,12 +178,12 @@ Get-AutoSensitivityLabelPolicy | Select-Object Name, Mode, AutoLabelingWorkload
 >    (Exchange Online) a pourtant validé — `EncryptRMSTemplate` semble attendre le nom
 >    canonique anglais (`Encrypt`) même sur un tenant FR. 3c teste plusieurs candidats
 >    avant d'abandonner plutôt que de fixer une seule valeur supposée.
-> 
+>
 > Conséquence pratique : ce chapitre combine deux surfaces de cmdlets — Exchange Online
 > (Transport Rules, résolution de template) et Security & Compliance (SIT, DLP Rules).
 > `Connect-IPPSSession` et `Connect-ExchangeOnline` sont tous les deux nécessaires dès
 > qu'un exo touche les deux mondes (cas de 3c).
-> 
+
 </details>
 
 <details>
@@ -184,11 +193,11 @@ Get-AutoSensitivityLabelPolicy | Select-Object Name, Mode, AutoLabelingWorkload
 > de lecture (logo, couleurs, message d'accueil) et la **révocation de message** — possibilité de
 > couper l'accès à un mail déjà envoyé, à condition que le destinataire le lise via le portail web OME
 > (pas via un client Outlook natif qui aurait déchiffré le message localement).
-> 
+>
 > En production, AME est pertinent dans deux scénarios : communications client avec charte graphique
 > imposée (secteur bancaire, juridique) et gestion de crise post-envoi (mauvais destinataire,
 > fuite de données — on révoque l'accès avant que le mail soit lu).
-> 
+>
 > AME nécessite une licence **E5 ou l'add-on Microsoft Purview Message Encryption**. Les cmdlets
 > existent (`New-OMEConfiguration`, `Set-OMEConfiguration`) mais le résultat n'est vérifiable
 > qu'en envoyant un vrai mail et en inspectant le portail de lecture — hors périmètre d'un
@@ -254,35 +263,8 @@ Remove-DlpCompliancePolicy -Identity "Nom-de-la-policy" -Confirm:$false
 # Supprimer une Transport Rule
 Remove-TransportRule -Identity "Nom-de-la-rule" -Confirm:$false
 
-# IMPORTANT : toutes les cmdlets eDiscovery nécessitent -EnableSearchOnlySession
-# Connect-IPPSSession -UserPrincipalName GeptorAdmin@0n4mg.onmicrosoft.com -EnableSearchOnlySession
-
-# Lister tous les eDiscovery Cases
-Get-ComplianceCase -All | Select-Object Name, Status, CaseType
-
-# Statut du hold d'un case spécifique
-Get-CaseHoldPolicy -Identity "Nom-du-hold" | Select-Object Name, Enabled, DistributionStatus
-
-# Statut de tous les holds d'un case
-Get-CaseHoldPolicy -Case "Nom-du-case" | Select-Object Name, Enabled, DistributionStatus
-
-# Statut de tous les holds de tous les cases du tenant
-Get-ComplianceCase -All | ForEach-Object { Get-CaseHoldPolicy -Case $_.Name } |
-    Select-Object Name, Enabled, DistributionStatus
-
-# Lister la règle d'un hold (query KQL appliquée)
-Get-CaseHoldRule -Policy "Nom-du-hold" | Select-Object Name, ContentMatchQuery
-
-# Désactiver un hold sans supprimer le case
-Set-CaseHoldPolicy -Identity "Nom-du-hold" -Enabled $false
-
-# Supprimer un hold — ordre obligatoire : règle → policy → case
-Remove-CaseHoldRule   -Identity "Nom-de-la-règle" -Confirm:$false
-Remove-CaseHoldPolicy -Identity "Nom-du-hold"     -Confirm:$false
-Remove-ComplianceCase -Identity "Nom-du-case"     -Confirm:$false
-
-
-
+# Fermer proprement toutes les sessions (Exchange Online ET Security & Compliance)
+Get-PSSession | Remove-PSSession
 ```
 
 </details>
@@ -313,13 +295,13 @@ Remove-ComplianceCase -Identity "Nom-du-case"     -Confirm:$false
 <summary>Note technique — pièges de syntaxe sur l'API REST Purview v3 (module >= 3.x)</summary>
 
 > Deux erreurs courantes rencontrées lors de la création de règles DLP par script :
-> 
+>
 > 1. **Clés de la hashtable SIT en minuscules strictes.** `-ContentContainsSensitiveInformation`
 >    attend un tableau de hashtables avec les clés `name`, `mincount`, `minconfidence` —
 >    tout en minuscules, valeurs numériques passées comme strings (`"1"`, `"75"`).
 >    Les clés PascalCase (`Name`, `MinCount`) documentées sur Microsoft Learn sont rejetées
 >    avec `InvalidContentContainsSensitiveInformationException`.
-> 
+>
 > 2. **`-NotifyUser` : `"LastModifier"`, pas `"LastModifiedBy"`.** La documentation
 >    Microsoft Learn indique `"LastModifiedBy"` — la valeur réellement acceptée par
 >    l'API REST v3 est `"LastModifier"` (sans "By"). L'erreur retournée est
@@ -337,7 +319,7 @@ Remove-ComplianceCase -Identity "Nom-du-case"     -Confirm:$false
 > logique de groupe (plusieurs labels en OR), il faut passer par `-AdvancedRule` en JSON brut, avec
 > chaque label déclaré comme `{name = "<GUID>"; type = "Sensitivity"}` dans un bloc
 > `Condition.SubConditions[].Value[].groups[].labels[]`.
-> 
+>
 > Deuxième piège, une fois le JSON de base fonctionnel : `-BlockAccess` combiné à un blocage externe
 > (`BlockAccessScope PerUser`) **rejette la règle à la création** si `-AccessScope NotInOrganization`
 > est passé en paramètre séparé du cmdlet. Le moteur DLP exige que cette condition soit elle-même
@@ -345,7 +327,7 @@ Remove-ComplianceCase -Identity "Nom-du-case"     -Confirm:$false
 > relié par `Operator: "And"` — pas en paramètre externe. Message d'erreur obtenu :
 > `"you must have 'Content is shared with people outside your organization' as the first condition
 > along with operator 'AND' with other conditions or groups in your rule"`.
-> 
+>
 > Conséquence pratique : dès qu'une condition DLP combine plusieurs critères avec une logique
 > explicite (labels en OR, label + accès externe en AND, exceptions), réflexe direct vers
 > `-AdvancedRule` + hashtable PowerShell + `ConvertTo-Json -Depth 100` — ne jamais chercher de
@@ -358,7 +340,7 @@ Remove-ComplianceCase -Identity "Nom-du-case"     -Confirm:$false
 
 > Ces deux fonctionnalités sont couvertes en cours (sections 6 et 5 du SC-401) mais
 > ne sont pas scriptables de manière utile sur un tenant dev sans infrastructure.
-> 
+>
 > **Endpoint DLP** nécessite des devices Windows 10/11 onboardés dans Microsoft Defender
 > for Endpoint (MDE). Sans machine enrôlée dans MDE, les policies Endpoint DLP sont
 > créables via PowerShell (`DeviceDlpRestrictions` comme workload) mais ne déclenchent
@@ -366,7 +348,7 @@ Remove-ComplianceCase -Identity "Nom-du-case"     -Confirm:$false
 > domaine et onboardée dans MDE, l'exercice se résume à créer un objet vide.
 > Configuration et monitoring : **Microsoft Purview portal > Data loss prevention >
 > Endpoint DLP settings**.
-> 
+>
 > **Adaptive Protection** couple DLP et Insider Risk Management — le niveau de risque
 > d'un utilisateur (calculé par IRM) fait varier dynamiquement les règles DLP qui
 > s'appliquent à lui. Requires : licence E5 Compliance ou E5 Security + au moins une
@@ -393,8 +375,7 @@ Get-DlpCompliancePolicy | Where-Object { $_.Mode -like "Test*" } | Select-Object
 # Lister les règles d'une policy spécifique
 Get-DlpComplianceRule -Policy "Nom-de-la-policy" | Select-Object Name, Disabled, BlockAccess
 
-# Inspecter le JSON brut d'une règle complexe (AdvancedRule) — utile pour relire
-# la logique d'une condition label/groupe sans repasser par le script qui l'a créée
+# Inspecter le JSON brut d'une règle complexe (AdvancedRule)
 Get-DlpComplianceRule -Identity "Nom-de-la-règle" | Select-Object -ExpandProperty AdvancedRule
 
 # Lister toutes les règles de toutes les policies (vue globale)
@@ -420,6 +401,8 @@ Set-DlpComplianceRule -Identity "Nom-de-la-règle" -Disabled $true
 Remove-DlpComplianceRule -Identity "Nom-de-la-règle" -Confirm:$false
 Remove-DlpCompliancePolicy -Identity "Nom-de-la-policy" -Confirm:$false
 
+# Fermer proprement les sessions
+Get-PSSession | Remove-PSSession
 ```
 
 </details>
@@ -465,7 +448,7 @@ Remove-DlpCompliancePolicy -Identity "Nom-de-la-policy" -Confirm:$false
 >    applique une règle de rétention **directement** sur un périmètre (mailboxes, sites), sans
 >    passer par un label sélectionnable par l'utilisateur — rétention "de fond", invisible,
 >    appliquée à tout le contenu du périmètre.
-> 
+>
 > Les trois partagent la même cmdlet racine `New-RetentionCompliancePolicy`, ce qui prête à
 > confusion : c'est la présence ou non de `-RetentionRuleType` et de `New-RetentionComplianceRule`
 > qui distinguent "publier un label" de "appliquer une rétention de fond".
@@ -477,16 +460,16 @@ Remove-DlpCompliancePolicy -Identity "Nom-de-la-policy" -Confirm:$false
 
 > Couvrir "Exchange + Teams" en une seule Retention Policy est impossible. Trois contraintes
 > distinctes découvertes par test réel sur ce tenant, dans cet ordre :
-> 
+>
 > **A.** `-ExchangeLocation` et `-TeamsChannelLocation`/`-TeamsChatLocation` sont deux parameter
 > sets mutuellement exclusifs de `New-RetentionCompliancePolicy` ("Default" vs "TeamLocation") —
 > impossible de les combiner dans un même appel, quelle que soit la combinaison de paramètres.
-> 
+>
 > **B.** Teams n'est de toute façon plus géré par cette cmdlet du tout. Microsoft l'a migré vers
 > `New-AppRetentionCompliancePolicy` / `New-AppRetentionComplianceRule`, une famille séparée sans
 > paramètre de location dédié. Le ciblage se fait via `-Applications`, syntaxe
 > `"LocationType:NomApplication"`.
-> 
+>
 > **C.** Au sein de cette nouvelle famille, canaux (`MicrosoftTeamsChannelMessages`) et chats
 > (`TeamsChatUserInteractions`) appartiennent à deux **scenario groups** distincts — une policy
 > ne peut couvrir qu'un seul scenario group. Combiner les deux dans un même `-Applications`
@@ -494,12 +477,12 @@ Remove-DlpCompliancePolicy -Identity "Nom-de-la-policy" -Confirm:$false
 > `-ExchangeLocation "All"` reste obligatoire même dans ces policies Teams (`New-AppRetentionCompliancePolicy`)
 > car il sert à identifier le **scope utilisateur** (qui est concerné), indépendamment du fait
 > que le contenu réel soit dans Teams et non Exchange.
-> 
+>
 > **Conséquence :** "Exchange + Teams" = trois policies distinctes sur deux familles de cmdlets
 > différentes. Ce n'est pas spécifique à un tenant dev — c'est l'architecture actuelle de
 > Microsoft pour la rétention, en migration depuis les anciens emplacements
 > (`*-RetentionCompliance`) vers les nouveaux (`*-AppRetentionCompliance`).
-> 
+>
 > **Impact sur l'audit (5g) :** `Get-RetentionCompliancePolicy` ne retourne PAS les App
 > Retention Policies — il faut systématiquement appeler `Get-AppRetentionCompliancePolicy`
 > en plus, sinon les policies Teams sont silencieusement absentes de l'audit.
@@ -513,10 +496,10 @@ Remove-DlpCompliancePolicy -Identity "Nom-de-la-policy" -Confirm:$false
 > scopes de type `User` avec un seul critère : l'erreur `InvalidFilterConditionsException` se
 > produit même en suivant l'exemple officiel au mot près. Confirmé par au moins un autre
 > administrateur ayant reporté le problème à Microsoft.
-> 
+>
 > Solution de contournement : `-RawQuery`, un parameter set alternatif qui accepte une chaîne
 > OPATH simple (`"Department -eq 'Legal'"`) et évite complètement le chemin de code buggué.
-> M�me syntaxe que les groupes dynamiques Entra (exo 4b côté Entra), ce qui la rend
+> Même syntaxe que les groupes dynamiques Entra (exo 4b côté Entra), ce qui la rend
 > familière. Sur ce tenant (test réel), `-RawQuery` fonctionne sans problème là où
 > `-FilterConditions` échoue systématiquement.
 
@@ -586,6 +569,8 @@ Remove-ComplianceTag -Identity "Nom-du-label" -Confirm:$false
 # Supprimer un Adaptive Scope
 Remove-AdaptiveScope -Identity "Nom-du-scope" -Confirm:$false
 
+# Fermer proprement toutes les sessions
+Get-PSSession | Remove-PSSession
 ```
 
 </details>
@@ -599,14 +584,14 @@ Remove-AdaptiveScope -Identity "Nom-du-scope" -Confirm:$false
   * Licence requise : Microsoft Purview Audit (Premium, inclus E5)
 * [Exo 6b : Content Search — mailbox ciblée, date range, mot-clé](./06_Audit_ContentSearch/exo6b-content-search.ps1)
   * Objectif : Créer et lancer une Content Search sur la mailbox `shepard@0n4mg.onmicrosoft.com`, mot-clé `CONFIDENTIEL`, plage glissante de 90 jours — récupération des statistiques de résultats (nombre d'items, taille).
-  * Connexion requise : `Connect-IPPSSession`
+  * Connexion requise : `Connect-IPPSSession` (deux sessions séquentielles — voir note technique)
   * Licence requise : Microsoft Purview eDiscovery Standard (inclus E3/E5)
 * [Exo 6c : Audit du tenant — Audit Retention Policies et Content Searches](./06_Audit_ContentSearch/exo6c-audit-tenant.ps1)
   * Objectif : Lister les Audit Retention Policies existantes, les Content Searches du tenant et leur statut — vue d'ensemble de la posture d'audit et de recherche.
   * Connexion requise : `Connect-IPPSSession`
- * [Exo 6d : eDiscovery Case + Hold sur mailbox ciblée](./06_Audit_ContentSearch/exo6d-ediscovery-hold.ps1)
+* [Exo 6d : eDiscovery Case + Hold sur mailbox ciblée](./06_Audit_ContentSearch/exo6d-ediscovery-hold.ps1)
   * Objectif : Créer un eDiscovery Case, poser un Hold sur la mailbox `shepard@0n4mg.onmicrosoft.com` — blocage de toute suppression pendant la durée de l'investigation, indépendamment des Retention Policies en place.
-  * Connexion requise : `Connect-IPPSSession` + `Connect-ExchangeOnline` (vérification mailbox uniquement)
+  * Connexion requise : `Connect-ExchangeOnline` (vérification mailbox) + `Connect-IPPSSession -EnableSearchOnlySession` (Case et Hold)
   * Licence requise : Microsoft Purview eDiscovery Standard (inclus E3/E5)
   * Prérequis : mailbox Shepard provisionnée (licence E5 assignée + première connexion OWA)
 
@@ -615,13 +600,13 @@ Remove-AdaptiveScope -Identity "Nom-du-scope" -Confirm:$false
 
 > Ces deux fonctionnalités sont couvertes en cours (sections 8 et 10 du SC-401) mais
 > n'exposent aucune surface PowerShell utile sur un tenant dev.
-> 
+>
 > **Insider Risk Management** est entièrement GUI — la création de politiques, la gestion
 > des alertes/cas, les templates et les notices sont exclusivement dans le portail Purview.
 > Les quelques cmdlets disponibles (`Get-InsiderRiskPolicy`) sont en lecture seule et ne
 > permettent pas de créer ni de déclencher des scénarios de test sans signaux utilisateur réels.
 > Configuration : **Microsoft Purview portal > Insider Risk Management**.
-> 
+>
 > **DSPM for AI** (Data Security Posture Management for AI) est également 100% GUI et
 > nécessite des prérequis lourds (Azure VM, configuration de connecteurs, propagation de
 > plusieurs heures) qui dépassent le périmètre d'un exercice PowerShell autonome sur tenant
@@ -633,16 +618,16 @@ Remove-AdaptiveScope -Identity "Nom-du-scope" -Confirm:$false
 <summary>Note technique — Audit Retention Policy vs Retention Policy</summary>
 
 > Ces deux objets portent des noms proches mais sont radicalement différents :
-> 
+>
 > - **Retention Policy** (chapitre 05) : agit sur le **contenu** (emails, fichiers SharePoint, messages
 >   Teams) — contrôle combien de temps un document ou un message est conservé avant d'être supprimé.
 >   Cmdlets : `*-RetentionCompliancePolicy`, `*-AppRetentionCompliancePolicy`.
-> 
+>
 > - **Audit Retention Policy** (chapitre 06) : agit sur les **logs d'audit** — contrôle combien de
 >   temps les traces d'activité (qui a fait quoi, quand) sont conservées dans le journal d'audit
 >   unifié. Par défaut : 90 jours (180 jours avec E5). Une policy custom peut aller jusqu'à 10 ans.
 >   Cmdlets : `*-UnifiedAuditLogRetentionPolicy`.
-> 
+>
 > Confusion fréquente en entretien et en production : "on a une policy de rétention" peut désigner
 > l'un ou l'autre selon le contexte. L'objet cible (contenu vs trace d'activité) et la cmdlet
 > (`CompliancePolicy` vs `AuditLogRetentionPolicy`) tranchent sans ambiguïté.
@@ -656,7 +641,7 @@ Remove-AdaptiveScope -Identity "Nom-du-scope" -Confirm:$false
 > être **unique** sur tout le tenant — deux policies avec la même priorité sont refusées à la
 > création. La valeur 1 est la priorité la plus haute, 10000 la plus basse. Le script 6a détecte
 > automatiquement les priorités déjà utilisées et incrémente depuis 100 pour éviter la collision.
-> 
+>
 > Les policies créées via PowerShell avec des `RecordTypes` hors du tableau de bord GUI standard
 > **n'apparaissent pas dans l'interface** Microsoft Purview — elles sont uniquement consultables
 > et modifiables via `Get-/Set-UnifiedAuditLogRetentionPolicy`. Ce n'est pas un bug de propagation,
@@ -666,11 +651,33 @@ Remove-AdaptiveScope -Identity "Nom-du-scope" -Confirm:$false
 </details>
 
 <details>
+<summary>Note technique — double session obligatoire pour les cmdlets eDiscovery (6b, 6d)</summary>
+
+> Depuis le module ExchangeOnlineManagement 3.9.0, les cmdlets eDiscovery
+> (`*-ComplianceSearch`, `*-ComplianceCase`, `*-CaseHoldPolicy`, `*-CaseHoldRule`) nécessitent
+> que la session IPPSSession soit ouverte avec le flag `-EnableSearchOnlySession`. Ce flag
+> redirige l'authentification vers un endpoint Microsoft dédié (`cpfdwebservicecloudapp.net`).
+>
+> Le problème : les deux modes sont incompatibles dans la même session.
+> - Sans `-EnableSearchOnlySession` : `New-ComplianceSearch` fonctionne, `Start-ComplianceSearch` échoue (AADSTS500011)
+> - Avec `-EnableSearchOnlySession` : `Start-ComplianceSearch` et toutes les cmdlets Case/Hold fonctionnent,
+>   mais certaines cmdlets standard IPPSSession ne sont plus disponibles
+>
+> **Exo 6b** contourne ce problème avec deux sessions séquentielles : session sans flag pour créer
+> la search, fermeture, session avec flag pour la lancer et récupérer les stats.
+>
+> **Exo 6d** utilise uniquement `-EnableSearchOnlySession` car toutes ses opérations
+> (Case, Hold, Rule) en ont besoin. La vérification mailbox passe par `Connect-ExchangeOnline`
+> séparément — deux logins inévitables, deux endpoints distincts.
+
+</details>
+
+<details>
 <summary>Commandes utiles en une ligne — Audit et Content Search</summary>
 
 ```powershell
-# Lister toutes les ARPs par priorité — pas de -Identity sur cette cmdlet,
-# le filtre par nom se fait obligatoirement via Where-Object
+# IMPORTANT : cmdlets Audit Retention Policy — pas de -Identity, filtre par Where-Object obligatoire
+# Lister toutes les ARPs par priorité
 Get-UnifiedAuditLogRetentionPolicy | Sort-Object Priority |
     Select-Object Name, RecordTypes, RetentionDuration, Priority
 
@@ -678,10 +685,6 @@ Get-UnifiedAuditLogRetentionPolicy | Sort-Object Priority |
 Get-UnifiedAuditLogRetentionPolicy | Where-Object { $_.Name -eq "Nom-de-la-policy" }
 
 # Filtrer par RecordType (seul filtre natif de la cmdlet)
-Get-UnifiedAuditLogRetentionPolicy -RecordType ExchangeAdmin |
-    Select-Object Name, RetentionDuration, Priority
-
-# Filtrer les Audit Retention Policies par type d'activité
 Get-UnifiedAuditLogRetentionPolicy -RecordType ExchangeAdmin |
     Select-Object Name, RetentionDuration, Priority
 
@@ -694,17 +697,27 @@ Get-ComplianceSearch | Select-Object Name, Status, Items, Size | Sort-Object Nam
 # Relire le statut et les résultats d'une Content Search spécifique
 Get-ComplianceSearch -Identity "Nom-de-la-search" | Format-List Status, Items, Size, SuccessResults
 
-# Lancer une Content Search déjà créée
+# Lancer une Content Search déjà créée (nécessite -EnableSearchOnlySession)
 Start-ComplianceSearch -Identity "Nom-de-la-search"
 
 # Supprimer une Content Search
 Remove-ComplianceSearch -Identity "Nom-de-la-search" -Confirm:$false
 
+# IMPORTANT : toutes les cmdlets eDiscovery ci-dessous nécessitent -EnableSearchOnlySession
+# Connect-IPPSSession -UserPrincipalName GeptorAdmin@0n4mg.onmicrosoft.com -EnableSearchOnlySession
+
 # Lister tous les eDiscovery Cases
 Get-ComplianceCase -All | Select-Object Name, Status, CaseType
 
-# Lister les holds d'un Case
+# Statut du hold d'un case spécifique
+Get-CaseHoldPolicy -Identity "Nom-du-hold" | Select-Object Name, Enabled, DistributionStatus
+
+# Statut de tous les holds d'un case
 Get-CaseHoldPolicy -Case "Nom-du-case" | Select-Object Name, Enabled, DistributionStatus
+
+# Statut de tous les holds de tous les cases du tenant
+Get-ComplianceCase -All | ForEach-Object { Get-CaseHoldPolicy -Case $_.Name } |
+    Select-Object Name, Enabled, DistributionStatus
 
 # Lister la règle d'un hold (query KQL appliquée)
 Get-CaseHoldRule -Policy "Nom-du-hold" | Select-Object Name, ContentMatchQuery
@@ -717,6 +730,8 @@ Remove-CaseHoldRule   -Identity "Nom-de-la-règle" -Confirm:$false
 Remove-CaseHoldPolicy -Identity "Nom-du-hold"     -Confirm:$false
 Remove-ComplianceCase -Identity "Nom-du-case"     -Confirm:$false
 
+# Fermer proprement toutes les sessions
+Get-PSSession | Remove-PSSession
 ```
 
 </details>
