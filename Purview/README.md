@@ -254,6 +254,34 @@ Remove-DlpCompliancePolicy -Identity "Nom-de-la-policy" -Confirm:$false
 # Supprimer une Transport Rule
 Remove-TransportRule -Identity "Nom-de-la-rule" -Confirm:$false
 
+# IMPORTANT : toutes les cmdlets eDiscovery nécessitent -EnableSearchOnlySession
+# Connect-IPPSSession -UserPrincipalName GeptorAdmin@0n4mg.onmicrosoft.com -EnableSearchOnlySession
+
+# Lister tous les eDiscovery Cases
+Get-ComplianceCase -All | Select-Object Name, Status, CaseType
+
+# Statut du hold d'un case spécifique
+Get-CaseHoldPolicy -Identity "Nom-du-hold" | Select-Object Name, Enabled, DistributionStatus
+
+# Statut de tous les holds d'un case
+Get-CaseHoldPolicy -Case "Nom-du-case" | Select-Object Name, Enabled, DistributionStatus
+
+# Statut de tous les holds de tous les cases du tenant
+Get-ComplianceCase -All | ForEach-Object { Get-CaseHoldPolicy -Case $_.Name } |
+    Select-Object Name, Enabled, DistributionStatus
+
+# Lister la règle d'un hold (query KQL appliquée)
+Get-CaseHoldRule -Policy "Nom-du-hold" | Select-Object Name, ContentMatchQuery
+
+# Désactiver un hold sans supprimer le case
+Set-CaseHoldPolicy -Identity "Nom-du-hold" -Enabled $false
+
+# Supprimer un hold — ordre obligatoire : règle → policy → case
+Remove-CaseHoldRule   -Identity "Nom-de-la-règle" -Confirm:$false
+Remove-CaseHoldPolicy -Identity "Nom-du-hold"     -Confirm:$false
+Remove-ComplianceCase -Identity "Nom-du-case"     -Confirm:$false
+
+
 
 ```
 
