@@ -1,44 +1,39 @@
 # ========================================================================================
-# Exercice 5b : Retention Label avec disposition review — 7 ans depuis création
+# Exercice 5a : Retention Label simple — 3 ans depuis modification, sans review
 # ========================================================================================
-# Concept : contrairement à 5a (suppression silencieuse), ici un humain doit valider
-# la suppression à l'expiration. RetentionAction "KeepAndDelete" + ReviewerEmail rempli =
-# le contenu est gelé à l'expiration et apparaît dans la file de disposition review du
-# reviewer désigné, qui choisit : approuver la suppression, prolonger, ou relabelliser.
+# Concept : un Retention Label seul (New-ComplianceTag) n'a aucun effet tant qu'il n'est
+# pas publié via une Label Policy (exo 5c). Cet exo crée juste l'objet label.
 #
-# Delta pédagogique vs 5a :
-#   5a → "Delete" + pas de reviewer : suppression automatique et silencieuse
-#   5b → "KeepAndDelete" + ReviewerEmail : un humain valide avant toute suppression
+# Delta pédagogique vs 5b/5c :
+#   5a → label simple : suppression automatique à l'expiration, sans reviewer
+#   5b → label avec disposition review : un humain valide avant suppression définitive
+#   5c → label policy : publie les labels créés en 5a/5b pour les rendre visibles
+#        des utilisateurs dans SharePoint, OneDrive, Exchange
 #
-# Piège RetentionAction + ReviewerEmail :
-#   "Delete" seul n'accepte PAS de review humaine malgré ce qu'on pourrait penser.
-#   ReviewerEmail n'a d'effet QUE combiné à "KeepAndDelete".
-#   Logique : "KeepAndDelete" porte la sémantique "conserver jusqu'à décision humaine,
-#   puis supprimer si approuvé". "Delete" seul = suppression automatique, pas de place
-#   pour un reviewer dans le flux.
-#   "Keep" seul ne supprime jamais rien — pas de disposition à reviewer non plus.
+# Deux paramètres clés à distinguer :
 #
-# RetentionType "CreationAgeInDays" :
-#   Le compteur démarre à la CRÉATION du contenu, pas à sa dernière modification
-#   (contrairement à 5a qui utilise "ModificationAgeInDays").
-#   Pertinent pour des archives figées dont la date de référence est leur dépôt initial
-#   (factures, PV de réunion, contrats signés) — une modification ultérieure de métadonnée
-#   ne doit pas repousser l'horloge de rétention.
+#   RetentionAction :
+#     "Keep"          → conserve uniquement, ne supprime jamais
+#     "Delete"        → suppression automatique et silencieuse à l'expiration
+#                       (pas de coffre-fort consultable, pas de reviewer)
+#     "KeepAndDelete" → conserve pendant la durée, puis supprime
+#                       (ajoute un coffre-fort consultable avant suppression)
 #
-# Prérequis reviewer :
-#   Le compte reviewer doit exister sur le tenant ET disposer des rôles :
-#     - Disposition Management   → traiter les items en file de disposition
-#     - View-Only Audit Logs     → consulter l'historique
-#   Organization Management les inclut par défaut — sur ce tenant dev, GeptorAdmin convient.
-#   En production : compte dédié, pas l'admin global.
+#   RetentionType :
+#     "ModificationAgeInDays" → compteur démarre à la DERNIÈRE MODIFICATION du contenu
+#                               Pertinent pour des documents vivants (contrats en cours,
+#                               politiques internes régulièrement mises à jour)
+#     "CreationAgeInDays"     → compteur démarre à la CRÉATION
+#                               Pertinent pour des archives figées (factures, PV de réunion)
+#     "EventAgeInDays"        → compteur démarre à un événement métier défini (départ
+#                               d'un employé, fin de contrat...) — cf. exos avancés
 #
-# Thème Mass Effect : un Spectre valide la destruction des archives classifiées avant
-# leur purge définitive — rien n'est détruit sans accord humain.
+# Thème Mass Effect : la Citadelle purge ses archives après 3 ans d'inactivité.
 #
 # Ce que fait ce script :
 #   1. Reset total de session
 #   2. Recherche un nom de label disponible (auto-incrément)
-#   3. Crée le label avec disposition review à 7 ans depuis création
+#   3. Crée le label avec suppression à 3 ans depuis dernière modification
 #   4. Vérifie la création depuis la source de vérité
 #   5. Affiche un résumé
 #   6. Ferme proprement toutes les sessions
@@ -65,7 +60,7 @@ Connect-IPPSSession -UserPrincipalName GeptorAdmin@0n4mg.onmicrosoft.com
 # ========================================================================================
 Write-Host "1. Recherche d'un nom disponible..." -ForegroundColor Cyan
 
-$BaseLabelName = "RET-Citadel-7ans-Creation-Review"
+$BaseLabelName = "RET-Citadel-3ans-Modification"
 $LabelName     = $BaseLabelName
 $Counter       = 2
 while (Get-ComplianceTag -Identity $LabelName -ErrorAction SilentlyContinue) {
@@ -80,33 +75,20 @@ Write-Host "-> Nom retenu : '$LabelName'`n" -ForegroundColor Green
 # ========================================================================================
 Write-Host "2. Création du label '$LabelName'..." -ForegroundColor Cyan
 
-# 7 ans = 365 × 7 = 2555 jours.
 # RetentionDuration attend un nombre de JOURS — pas d'unité Year/Month acceptée.
+# 3 ans = 365 × 3 = 1095 jours.
+# Le champ DuréeApprox dans la vérification (étape 3) reconvertit en années pour
+# faciliter la lecture humaine — l'API ne stocke que les jours.
 #
-# -ReviewerEmail : l'UPN du reviewer désigné.
-# Sur ce tenant dev, GeptorAdmin (Organization Management) dispose des rôles nécessaires.
-# En production, ce serait un compte dédié de type "Records Manager" ou
-# "Compliance Administrator" — jamais le compte admin global.
-#
-# Flux de disposition review à l'expiration :
-#   1. Purview détecte que le label a expiré sur un item
-#   2. L'item est gelé (plus modifiable, plus supprimable par les utilisateurs)
-#   3. Une entrée apparaît dans la file "Disposition" du portail Purview
-#   4. Le reviewer reçoit une notification et doit choisir :
-#        → Approuver la suppression : l'item est définitivement supprimé
-#        → Prolonger              : nouvelle durée de rétention ajoutée
-#        → Relabelliser           : un autre label de rétention est appliqué
-#   5. L'action du reviewer est loggée dans l'audit Purview (traçabilité complète)
-$ReviewerUPN = "GeptorAdmin@0n4mg.onmicrosoft.com"
-
+# -Comment : visible dans le portail Purview Admin Center — utile pour tracer l'origine
+# du label (exo, date, intention) quand on revient sur le tenant 6 mois plus tard.
 try {
     $NewLabel = New-ComplianceTag `
         -Name              $LabelName `
-        -RetentionAction   "KeepAndDelete" `
-        -RetentionDuration 2555 `
-        -RetentionType     "CreationAgeInDays" `
-        -ReviewerEmail     $ReviewerUPN `
-        -Comment           "Exo 5b — Disposition review obligatoire 7 ans après création." `
+        -RetentionAction   "Delete" `
+        -RetentionDuration 1095 `
+        -RetentionType     "ModificationAgeInDays" `
+        -Comment           "Exo 5a — Purge silencieuse 3 ans après dernière modification." `
         -ErrorAction Stop
 
     Write-Host "-> Label créé : $($NewLabel.Name)`n" -ForegroundColor Green
@@ -139,10 +121,9 @@ if ($CheckLabel) {
         # Reconversion jours → années pour lecture humaine (l'API ne stocke que les jours)
         DuréeApprox       = "{0:N1} ans" -f ($CheckLabel.RetentionDuration / 365)
         Type              = $CheckLabel.RetentionType
-        # ReviewerEmail est une collection — -join pour affichage propre si plusieurs reviewers
-        Reviewer          = ($CheckLabel.ReviewerEmail -join ", ")
-        # DispositionReview "Oui" confirme que ReviewerEmail a bien été pris en compte
-        # Un "Non" ici indiquerait que KeepAndDelete + ReviewerEmail n'ont pas été combinés
+        # DispositionReview : ReviewerEmail non nul → un reviewer humain doit valider
+        # avant suppression définitive. Ici $null = suppression automatique, sans review.
+        # La variante avec reviewer est l'objet de l'exo 5b.
         DispositionReview = if ($CheckLabel.ReviewerEmail) { "Oui" } else { "Non" }
     } | Format-List
 } else {
@@ -156,11 +137,10 @@ if ($CheckLabel) {
 Write-Host "=== RÉSUMÉ ===" -ForegroundColor Magenta
 [PSCustomObject]@{
     LabelCréé         = $LabelName
-    RetentionAction   = "KeepAndDelete (conservation puis suppression si review approuvée)"
-    RetentionDuration = "2555 jours (7 ans)"
-    RetentionType     = "CreationAgeInDays (compteur depuis la création du contenu)"
-    Reviewer          = $ReviewerUPN
-    DispositionReview = "Oui — approbation humaine requise avant suppression définitive"
+    RetentionAction   = "Delete (suppression silencieuse)"
+    RetentionDuration = "1095 jours (3 ans)"
+    RetentionType     = "ModificationAgeInDays (compteur depuis dernière modification)"
+    DispositionReview = "Non (suppression automatique sans reviewer)"
     Statut            = "Créé — non publié — invisible des utilisateurs"
     ÉtapeSuivante     = "Publication via Label Policy : cf. exo 5c"
 } | Format-List
@@ -168,7 +148,7 @@ Write-Host "=== RÉSUMÉ ===" -ForegroundColor Magenta
 # ========================================================================================
 # NETTOYAGE MÉMOIRE
 # ========================================================================================
-Remove-Variable BaseLabelName, LabelName, Counter, ReviewerUPN, NewLabel, CheckLabel `
+Remove-Variable BaseLabelName, LabelName, Counter, NewLabel, CheckLabel `
                 -ErrorAction SilentlyContinue
 
 # ========================================================================================
