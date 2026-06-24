@@ -1,97 +1,42 @@
 # ========================================================================================
-# Exercice 5d : Conditional Access — Modifier l'état d'une politique existante
+# Exercice 5d : Entra ID — Conditional Access — Modifier l'état d'une politique existante
 # ========================================================================================
 # Concept : Cycle de vie d'une politique CA.
-# En prod, on ne passe jamais directement de "disabled" à "enabled".
-# Le workflow standard :
+# En production, on ne passe jamais directement de "disabled" à "enabled".
+# Le workflow standard en trois temps :
 #   1. Créer en "disabled" ou "enabledForReportingButNotEnforced" (Report-Only)
-#   2. Observer l'impact dans les logs Sign-in
-#   3. Activer avec "enabled" une fois l'impact validé
+#   2. Observer l'impact dans les Sign-in logs Entra (onglet Conditional Access)
+#   3. Activer avec "enabled" une fois l'impact validé — zéro surprise utilisateur
 #
-# Ce script simule l'étape 3 — passage de Report-Only à Enabled.
-# On repassera en Report-Only à la fin pour ne pas impacter le tenant de lab.
+# Ce script simule l'étape 3 — passage de Report-Only à Enabled —
+# puis repasse en Report-Only pour ne pas impacter le tenant de lab.
 #
-# Astuce technique : -ContextScope Process bypasse le cache WAM.
+# Ce que fait ce script :
+#   1. Reset total de session
+#   2. Récupère la politique CA001 par son nom
+#   3. Affiche l'état actuel
+#   4. Passe la politique en "enabled" (activation réelle)
+#   5. Vérifie l'état depuis la source de vérité
+#   6. Repasse en Report-Only (sécurité lab)
+#   7. Vérifie l'état final
+#   8. Ferme proprement toutes les sessions
+#
+# DÉCOUVERTE TECHNIQUE : Update-MgIdentityConditionalAccessPolicy avec -BodyParameter
+# partiel fonctionne en mode PATCH HTTP — seules les propriétés fournies sont modifiées.
+# Graph merge les modifications sans toucher aux autres propriétés de la politique
+# (conditions, grant controls, etc.). Pas besoin de renvoyer l'objet complet.
+#
+# Module requis : Microsoft.Graph.Identity.SignIns
+# Connexion     : Connect-MgGraph
 # ========================================================================================
 
-# --- ÉTAPE 1 : Connexion à Microsoft Graph ---
-# Policy.ReadWrite.ConditionalAccess : modifier des politiques CA
-# -ContextScope Process : session isolée — bypasse le cache WAM
+# --- OUVERTURE — RESET DE SESSION TOTAL ---
+# Policy.ReadWrite.ConditionalAccess : lire et modifier des politiques CA.
+# -ContextScope Process : bypasse le cache WAM (Windows Authentication Manager).
+# REX : sans ce paramètre, WAM réutilise un token de session précédente avec des
+# scopes insuffisants — cause la plus fréquente des 403 silencieux sur les scripts CA.
 $Scopes = @(
     "Policy.ReadWrite.ConditionalAccess"
 )
 
-Disconnect-MgGraph -ErrorAction SilentlyContinue
-Connect-MgGraph -Scopes $Scopes -ContextScope Process
-
-# --- ÉTAPE 2 : Définition des variables ---
-# On cible CA001 — la politique MFA créée à l'exo 5b
-$PolicyName = "CA001 - Require MFA for All Users"
-
-# --- ÉTAPE 3 : Récupération de la politique existante ---
-# On cherche par nom — retourne l'objet complet avec son ID
-Write-Host "1. Récupération de la politique '$PolicyName'..." -ForegroundColor Cyan
-
-$Policy = Get-MgIdentityConditionalAccessPolicy -All |
-    Where-Object { $_.DisplayName -eq $PolicyName }
-
-if (-not $Policy) {
-    Write-Error "Politique '$PolicyName' introuvable."
-    return
-}
-
-Write-Host "-> Politique trouvée : $($Policy.Id)" -ForegroundColor Green
-Write-Host "-> State actuel : $($Policy.State)`n" -ForegroundColor Yellow
-
-# --- ÉTAPE 4 : Passage en Enabled ---
-# -BodyParameter @{ State = "enabled" } — on passe uniquement le paramètre à modifier
-# Pas besoin de renvoyer tout l'objet — Graph merge les modifications
-Write-Host "2. Activation de la politique (Report-Only → Enabled)..." -ForegroundColor Cyan
-
-try {
-    Update-MgIdentityConditionalAccessPolicy `
-        -ConditionalAccessPolicyId $Policy.Id `
-        -BodyParameter @{ State = "enabled" } `
-        -ErrorAction Stop
-    Write-Host "-> Succès : Politique activée." -ForegroundColor Green
-}
-catch {
-    Write-Host "-> Échec de la modification : $_" -ForegroundColor Red
-    return
-}
-
-# --- ÉTAPE 5 : Vérification ---
-# Réplication CA lente — 15 secondes minimum
-Write-Host "3. Vérification depuis Entra (source de vérité, attente 15s)..." -ForegroundColor Cyan
-Start-Sleep -Seconds 15
-
-Get-MgIdentityConditionalAccessPolicy -ConditionalAccessPolicyId $Policy.Id |
-    Select-Object Id, DisplayName, State
-
-# --- ÉTAPE 6 : Retour en Report-Only ---
-# On repasse en Report-Only pour ne pas impacter le tenant de lab
-# En prod — on laisserait en "enabled" après validation
-Write-Host "`n4. Retour en Report-Only (sécurité lab)..." -ForegroundColor Cyan
-
-try {
-    Update-MgIdentityConditionalAccessPolicy `
-        -ConditionalAccessPolicyId $Policy.Id `
-        -BodyParameter @{ State = "enabledForReportingButNotEnforced" } `
-        -ErrorAction Stop
-    Write-Host "-> Succès : Politique repassée en Report-Only." -ForegroundColor Green
-}
-catch {
-    Write-Host "-> Échec du retour en Report-Only : $_" -ForegroundColor Red
-}
-
-# --- ÉTAPE 7 : Vérification finale ---
-Write-Host "5. Vérification finale (attente 15s)..." -ForegroundColor Cyan
-Start-Sleep -Seconds 15
-
-Get-MgIdentityConditionalAccessPolicy -ConditionalAccessPolicyId $Policy.Id |
-    Select-Object Id, DisplayName, State
-
-# --- ÉTAPE 8 : Nettoyage ---
-Remove-Variable Scopes, PolicyName, Policy -ErrorAction SilentlyContinue
-
-Write-Host "`nMémoire locale nettoyée. Session Microsoft Graph toujours active." -ForegroundColor Magenta
+Disconnect-MgGraph
