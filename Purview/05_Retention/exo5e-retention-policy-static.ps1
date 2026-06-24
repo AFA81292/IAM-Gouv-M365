@@ -6,56 +6,95 @@
 # au périmètre sans passer par un label sélectionnable — invisible, rétention uniforme.
 #
 # Scope STATIQUE : "All" fige le périmètre à la création. Contrairement à un Adaptive
-# Scope (5d), ce périmètre ne se recalcule jamais.
+# Scope (5d), ce périmètre ne se recalcule jamais — toute modification requiert une
+# intervention manuelle sur la policy.
 #
-# CORRECTIF POST-DEBUG : "Exchange + Teams, 1 an" semble être une seule policy multi-
-# location (comme 5c l'était pour Exchange + SharePoint). En réalité, trois contraintes
-# d'architecture distinctes, toutes découvertes par erreur réelle sur ce tenant, forcent
-# à séparer en TROIS policies :
+# Delta pédagogique vs 5d/5f :
+#   5d → Adaptive Scope : requête dynamique, membres recalculés en continu
+#   5e → Retention Policy statique : périmètre figé "All", trois policies distinctes
+#   5f → Retention Policy avec Adaptive Scope : même logique que 5e mais scope dynamique
+#        (compare 5e et 5f pour comprendre la différence statique vs adaptatif en prod)
 #
-# A. ExchangeLocation et TeamsChannelLocation/TeamsChatLocation sont deux parameter sets
-#    mutuellement exclusifs de New-RetentionCompliancePolicy ("Default" vs "TeamLocation").
-#    Impossible de les combiner dans un même appel, quel que soit l'agencement des
-#    paramètres — la cmdlet rejette la combinaison à la résolution du parameter set,
-#    avant même de regarder les valeurs.
+# Pourquoi 3 policies et pas 1 — trois contraintes d'architecture découvertes en test réel :
 #
-# B. Teams n'est de toute façon plus géré par cette cmdlet du tout : Microsoft l'a migré
-#    vers New-AppRetentionCompliancePolicy / New-AppRetentionComplianceRule, une famille
-#    séparée sans paramètre de location dédié. Le ciblage se fait via -Applications,
-#    syntaxe "LocationType:NomApp" (ex. "User:MicrosoftTeamsChannelMessages").
+#   Contrainte A — parameter sets mutuellement exclusifs :
+#     ExchangeLocation et TeamsChannelLocation/TeamsChatLocation appartiennent à deux
+#     parameter sets distincts de New-RetentionCompliancePolicy ("Default" vs "TeamLocation").
+#     Impossible de les combiner dans un même appel — la cmdlet rejette la combinaison
+#     à la résolution du parameter set, avant même de regarder les valeurs.
 #
-# C. Au sein de cette nouvelle famille, canaux (MicrosoftTeamsChannelMessages) et chats
-#    (TeamsChatUserInteractions) appartiennent à deux "scenario groups" distincts côté
-#    backend — une policy ne peut couvrir qu'un seul scenario group à la fois. Combiner
-#    les deux apps dans un même -Applications déclenche un rejet explicite ("Applications
-#    must belong to a single known scenario group").
+#   Contrainte B — Teams migré vers une nouvelle famille de cmdlets :
+#     Teams n'est plus géré par New-RetentionCompliancePolicy du tout.
+#     Microsoft l'a migré vers New-AppRetentionCompliancePolicy /
+#     New-AppRetentionComplianceRule. Le ciblage se fait via -Applications,
+#     syntaxe "LocationType:NomApp" (ex. "User:MicrosoftTeamsChannelMessages").
+#     Tenter New-RetentionCompliancePolicy avec Teams provoque :
+#     "Teams Chat and Channel policies are not supported using this cmdlet,
+#      Use NewAppRetention cmdlet" (testé et confirmé sur ce tenant).
 #
-# Conséquence : Exchange reste sur l'ancienne cmdlet (-ExchangeLocation "All"), Teams se
-# scinde en deux policies sur la nouvelle cmdlet (une par scenario group). Dans les deux
-# cas Teams, -ExchangeLocation "All" doit AUSSI être présent — contre-intuitif, mais ce
-# paramètre sert d'identité de scope utilisateur (les comptes concernés), indépendamment
-# du fait que le contenu réellement retenu soit dans Teams et non dans Exchange.
+#   Contrainte C — scenario groups distincts dans la nouvelle famille :
+#     Au sein de New-AppRetentionCompliancePolicy, canaux (MicrosoftTeamsChannelMessages)
+#     et chats (TeamsChatUserInteractions) appartiennent à deux "scenario groups" distincts
+#     côté backend. Une policy ne peut couvrir qu'un seul scenario group à la fois.
+#     Combiner les deux dans un même -Applications déclenche : "Applications must belong
+#     to a single known scenario group" (testé et confirmé sur ce tenant).
+#     Bonus pédagogique : cette séparation a aussi du sens métier — retenir les canaux
+#     Teams 1 an mais purger les chats plus vite (confidentialité des échanges privés)
+#     est un cas d'usage réel en production.
+#
+#   Cas particulier -ExchangeLocation "All" sur les policies Teams :
+#     Contre-intuitif : le contenu retenu est dans Teams, pas Exchange — pourtant ce
+#     paramètre est OBLIGATOIRE sur les policies AppRetentionCompliance.
+#     Il identifie le SCOPE UTILISATEUR (qui est concerné), indépendamment d'où vit
+#     le contenu. Sans lui : "user applications are present, but ExchangeLocations is
+#     missing" (testé et confirmé sur ce tenant).
 #
 # Thème Mass Effect : rétention 1 an sur les communications de la Citadelle (mail,
-# canaux Teams, chats Teams) — trois flux de communication, trois politiques de fond.
+# canaux Teams, chats Teams) — trois flux, trois politiques de fond.
+#
+# Ce que fait ce script :
+#   1. Reset total de session
+#   2. Recherche des noms disponibles (3 policies + 3 règles, auto-incrément)
+#   3. Crée la policy + règle Exchange (ancienne cmdlet, parameter set "Default")
+#   4. Crée la policy + règle Teams canaux (nouvelle cmdlet AppRetention)
+#   5. Crée la policy + règle Teams chats (nouvelle cmdlet AppRetention, scenario distinct)
+#   6. Vérifie les trois créations depuis la source de vérité
+#   7. Affiche un résumé
+#   8. Ferme proprement toutes les sessions
 #
 # Module requis : ExchangeOnlineManagement
-# Connexion : Connect-IPPSSession
-# Licence requise : Microsoft Purview Records Management (inclus E5)
+# Connexion     : Connect-IPPSSession
+# Licence       : Microsoft Purview Records Management (inclus E5)
 # ========================================================================================
 
-# --- OUVERTURE ---
+# --- OUVERTURE — RESET DE SESSION TOTAL ---
+# REX : des sessions fantômes restées ouvertes depuis un script précédent peuvent
+# provoquer des erreurs silencieuses ou des authentifications croisées.
+# On purge TOUT avant de commencer, sans exception.
+#
+# Ordre : Disconnect-ExchangeOnline → Remove-PSSession → workaround WAM → reconnexion.
+# Note : Connect-IPPSSession ne supporte pas -ShowBanner:$false — bandeau normal.
 Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue
 Get-PSSession | Remove-PSSession
 $env:MSAL_ENABLE_WAM = "0"
 Connect-IPPSSession -UserPrincipalName GeptorAdmin@0n4mg.onmicrosoft.com
 
-# --- ÉTAPE 1 : Recherche de noms disponibles (3 policies + 3 règles) ---
-Write-Host "1. Recherche de noms disponibles..." -ForegroundColor Cyan
+# ========================================================================================
+# ÉTAPE 1 : Recherche des noms disponibles (3 policies + 3 règles)
+# ========================================================================================
+Write-Host "1. Recherche des noms disponibles..." -ForegroundColor Cyan
+Start-Sleep -Seconds 30
+
+# Chaque famille utilise sa propre cmdlet de vérification :
+#   Get-RetentionCompliancePolicy    → ancienne famille (Exchange)
+#   Get-AppRetentionCompliancePolicy → nouvelle famille (Teams canaux + Teams chats)
+#   Get-RetentionComplianceRule      → règles ancienne famille
+#   Get-AppRetentionComplianceRule   → règles nouvelle famille
 
 $ExchangePolicyName = "RET-POL-Citadel-Static-Exchange"
 $Counter = 2
 while (Get-RetentionCompliancePolicy -Identity $ExchangePolicyName -ErrorAction SilentlyContinue) {
+    Write-Host "   '$ExchangePolicyName' déjà pris — test avec suffixe -v$Counter..." -ForegroundColor Yellow
     $ExchangePolicyName = "RET-POL-Citadel-Static-Exchange-v$Counter"
     $Counter++
 }
@@ -63,6 +102,7 @@ while (Get-RetentionCompliancePolicy -Identity $ExchangePolicyName -ErrorAction 
 $ExchangeRuleName = "RULE-Citadel-Static-Exchange-1an"
 $Counter = 2
 while (Get-RetentionComplianceRule -Identity $ExchangeRuleName -ErrorAction SilentlyContinue) {
+    Write-Host "   '$ExchangeRuleName' déjà pris — test avec suffixe -v$Counter..." -ForegroundColor Yellow
     $ExchangeRuleName = "RULE-Citadel-Static-Exchange-1an-v$Counter"
     $Counter++
 }
@@ -70,6 +110,7 @@ while (Get-RetentionComplianceRule -Identity $ExchangeRuleName -ErrorAction Sile
 $TeamsChannelPolicyName = "RET-POL-Citadel-Static-TeamsCanaux"
 $Counter = 2
 while (Get-AppRetentionCompliancePolicy -Identity $TeamsChannelPolicyName -ErrorAction SilentlyContinue) {
+    Write-Host "   '$TeamsChannelPolicyName' déjà pris — test avec suffixe -v$Counter..." -ForegroundColor Yellow
     $TeamsChannelPolicyName = "RET-POL-Citadel-Static-TeamsCanaux-v$Counter"
     $Counter++
 }
@@ -77,6 +118,7 @@ while (Get-AppRetentionCompliancePolicy -Identity $TeamsChannelPolicyName -Error
 $TeamsChannelRuleName = "RULE-Citadel-Static-TeamsCanaux-1an"
 $Counter = 2
 while (Get-AppRetentionComplianceRule -Identity $TeamsChannelRuleName -ErrorAction SilentlyContinue) {
+    Write-Host "   '$TeamsChannelRuleName' déjà pris — test avec suffixe -v$Counter..." -ForegroundColor Yellow
     $TeamsChannelRuleName = "RULE-Citadel-Static-TeamsCanaux-1an-v$Counter"
     $Counter++
 }
@@ -84,6 +126,7 @@ while (Get-AppRetentionComplianceRule -Identity $TeamsChannelRuleName -ErrorActi
 $TeamsChatPolicyName = "RET-POL-Citadel-Static-TeamsChats"
 $Counter = 2
 while (Get-AppRetentionCompliancePolicy -Identity $TeamsChatPolicyName -ErrorAction SilentlyContinue) {
+    Write-Host "   '$TeamsChatPolicyName' déjà pris — test avec suffixe -v$Counter..." -ForegroundColor Yellow
     $TeamsChatPolicyName = "RET-POL-Citadel-Static-TeamsChats-v$Counter"
     $Counter++
 }
@@ -91,6 +134,7 @@ while (Get-AppRetentionCompliancePolicy -Identity $TeamsChatPolicyName -ErrorAct
 $TeamsChatRuleName = "RULE-Citadel-Static-TeamsChats-1an"
 $Counter = 2
 while (Get-AppRetentionComplianceRule -Identity $TeamsChatRuleName -ErrorAction SilentlyContinue) {
+    Write-Host "   '$TeamsChatRuleName' déjà pris — test avec suffixe -v$Counter..." -ForegroundColor Yellow
     $TeamsChatRuleName = "RULE-Citadel-Static-TeamsChats-1an-v$Counter"
     $Counter++
 }
@@ -99,7 +143,21 @@ Write-Host "-> Exchange      : '$ExchangePolicyName' / '$ExchangeRuleName'" -For
 Write-Host "-> Teams canaux  : '$TeamsChannelPolicyName' / '$TeamsChannelRuleName'" -ForegroundColor Green
 Write-Host "-> Teams chats   : '$TeamsChatPolicyName' / '$TeamsChatRuleName'`n" -ForegroundColor Green
 
-# --- ÉTAPE 2 : Policy + règle Exchange (ancienne cmdlet, parameter set "Default") ---
+# ========================================================================================
+# ÉTAPE 2 : Policy + règle Exchange (ancienne cmdlet, parameter set "Default")
+# ========================================================================================
+Write-Host "2. Création policy + règle Exchange..." -ForegroundColor Cyan
+
+# New-RetentionCompliancePolicy parameter set "Default" — couvre Exchange, SharePoint,
+# OneDrive, mais PAS Teams (cf. contrainte B en en-tête).
+#
+# -RetentionComplianceAction "KeepAndDelete" :
+#   Conserve le contenu pendant la durée définie, puis le supprime automatiquement.
+#   Pas de reviewer (suppression silencieuse) — contrairement aux labels de 5b.
+#
+# -ExpirationDateOption "CreationAgeInDays" :
+#   Le compteur de 365 jours démarre à la création de l'item.
+#   Pour Exchange, "création" = date de réception/envoi du mail.
 try {
     $ExchangePolicy = New-RetentionCompliancePolicy `
         -Name             $ExchangePolicyName `
@@ -115,7 +173,7 @@ try {
         -ExpirationDateOption      "CreationAgeInDays" `
         -ErrorAction Stop | Out-Null
 
-    Write-Host "2. Policy + règle Exchange créées.`n" -ForegroundColor Green
+    Write-Host "-> Policy + règle Exchange créées.`n" -ForegroundColor Green
 }
 catch {
     Write-Host "-> Échec création Exchange : $_" -ForegroundColor Red
@@ -124,22 +182,21 @@ catch {
     return
 }
 
-# --- ÉTAPE 3 : Policy + règle Teams CANAUX (nouvelle cmdlet, scenario group "Teams") ---
-# Pourquoi New-AppRetentionCompliancePolicy et pas New-RetentionCompliancePolicy : Teams
-# n'est plus géré par l'ancienne cmdlet du tout (testé en amont — rejet explicite "Teams
-# Chat and Channel policies are not supported using this cmdlet, Use NewAppRetention
-# cmdlet"). Pas de paramètre TeamsChannelLocation ici : le ciblage passe par -Applications,
-# syntaxe "LocationType:NomApp" où LocationType est "User" ou "Group".
+# ========================================================================================
+# ÉTAPE 3 : Policy + règle Teams CANAUX (nouvelle cmdlet AppRetention)
+# ========================================================================================
+Write-Host "3. Création policy + règle Teams canaux..." -ForegroundColor Cyan
+
+# New-AppRetentionCompliancePolicy remplace New-RetentionCompliancePolicy pour Teams.
+# -Applications "User:MicrosoftTeamsChannelMessages" : cible les messages des canaux Teams.
+#   Syntaxe : "LocationType:NomApp"
+#   LocationType "User" = les comptes utilisateurs sont le scope d'identité.
 #
-# Pourquoi -Applications "User:MicrosoftTeamsChannelMessages" SEUL, pas combiné aux
-# chats : canaux et chats appartiennent à deux "scenario groups" distincts côté backend
-# (testé en amont — combiner les deux rejette avec "Applications must belong to a single
-# known scenario group", catégorie retournée : "Mixed"). Une policy = un scenario group.
+# -ExchangeLocation "All" obligatoire même ici : identité de scope utilisateur —
+# voir explication détaillée contrainte C en en-tête.
 #
-# Pourquoi -ExchangeLocation "All" est quand même là : contre-intuitif puisque le contenu
-# concerné est dans Teams, pas Exchange — mais ce paramètre identifie le SCOPE utilisateur
-# (qui est concerné), indépendamment d'OÙ vit le contenu. Sans lui : rejet "user
-# applications are present, but ExchangeLocations is missing" (testé en amont).
+# New-AppRetentionComplianceRule : pas de -ExpirationDateOption sur cette cmdlet —
+# la durée s'applique depuis la création de l'item Teams (comportement natif).
 try {
     $TeamsChannelPolicy = New-AppRetentionCompliancePolicy `
         -Name             $TeamsChannelPolicyName `
@@ -155,28 +212,31 @@ try {
         -RetentionComplianceAction "KeepAndDelete" `
         -ErrorAction Stop | Out-Null
 
-    Write-Host "3. Policy + règle Teams canaux créées.`n" -ForegroundColor Green
+    Write-Host "-> Policy + règle Teams canaux créées.`n" -ForegroundColor Green
 }
 catch {
     Write-Host "-> Échec création Teams canaux : $_" -ForegroundColor Red
-    Write-Host "   Exchange reste valide malgré cet échec." -ForegroundColor Yellow
+    Write-Host "   La policy Exchange reste valide malgré cet échec." -ForegroundColor Yellow
     Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue
     Get-PSSession | Remove-PSSession
     return
 }
 
-# --- ÉTAPE 4 : Policy + règle Teams CHATS (nouvelle cmdlet, scenario group distinct) ---
-# Pourquoi une policy séparée plutôt qu'ajouter cette app à la policy canaux ci-dessus :
-# TeamsChatUserInteractions n'appartient pas au même scenario group que
-# MicrosoftTeamsChannelMessages (cf. étape 3) — le backend les traite comme deux familles
-# fonctionnelles distinctes (canaux = espace d'équipe partagé, chats = conversations
-# privées/groupe), chacune avec son propre cycle de vie de rétention possible en
-# entreprise (ex. retenir les canaux 1 an mais purger les chats privés plus vite pour
-# des raisons de confidentialité — un cas réel où séparer les deux a du sens, pas
-# uniquement une contrainte technique à contourner).
+# ========================================================================================
+# ÉTAPE 4 : Policy + règle Teams CHATS (nouvelle cmdlet, scenario group distinct)
+# ========================================================================================
+Write-Host "4. Création policy + règle Teams chats..." -ForegroundColor Cyan
+
+# -Applications "User:TeamsChatUserInteractions" : cible les chats Teams (1:1 et groupes).
+# Scenario group distinct de MicrosoftTeamsChannelMessages — voir contrainte C en en-tête.
 #
-# -ExchangeLocation "All" obligatoire ici aussi, même cause qu'à l'étape 3 : identité de
-# scope utilisateur, indépendante du fait que le contenu réel soit dans Teams.
+# Séparation métier justifiée indépendamment de la contrainte technique :
+#   Canaux Teams = espaces d'équipe partagés, contenu professionnel collaboratif
+#   → durée de rétention longue souvent justifiée (conformité, traçabilité projet)
+#   Chats Teams  = conversations privées ou de petit groupe, nature plus personnelle
+#   → durée de rétention plus courte parfois préférable (confidentialité, RGPD)
+# Ici les deux sont à 365 jours pour simplifier l'exercice, mais la séparation en deux
+# policies permet de les gérer indépendamment en production si besoin.
 try {
     $TeamsChatPolicy = New-AppRetentionCompliancePolicy `
         -Name             $TeamsChatPolicyName `
@@ -192,60 +252,76 @@ try {
         -RetentionComplianceAction "KeepAndDelete" `
         -ErrorAction Stop | Out-Null
 
-    Write-Host "4. Policy + règle Teams chats créées.`n" -ForegroundColor Green
+    Write-Host "-> Policy + règle Teams chats créées.`n" -ForegroundColor Green
 }
 catch {
     Write-Host "-> Échec création Teams chats : $_" -ForegroundColor Red
-    Write-Host "   Exchange et Teams canaux restent valides malgré cet échec." -ForegroundColor Yellow
+    Write-Host "   Les policies Exchange et Teams canaux restent valides malgré cet échec." -ForegroundColor Yellow
     Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue
     Get-PSSession | Remove-PSSession
     return
 }
 
-# --- ÉTAPE 5 : Vérification depuis la source de vérité ---
-Write-Host "5. Vérification..." -ForegroundColor Cyan
+# ========================================================================================
+# ÉTAPE 5 : Vérification depuis la source de vérité
+# ========================================================================================
+Write-Host "5. Vérification depuis le backend Purview..." -ForegroundColor Cyan
 Start-Sleep -Seconds 30
 
-$CheckExchangePolicy     = Get-RetentionCompliancePolicy -Identity $ExchangePolicyName -ErrorAction SilentlyContinue
+$CheckExchangePolicy     = Get-RetentionCompliancePolicy    -Identity $ExchangePolicyName     -ErrorAction SilentlyContinue
 $CheckTeamsChannelPolicy = Get-AppRetentionCompliancePolicy -Identity $TeamsChannelPolicyName -ErrorAction SilentlyContinue
-$CheckTeamsChatPolicy    = Get-AppRetentionCompliancePolicy -Identity $TeamsChatPolicyName -ErrorAction SilentlyContinue
+$CheckTeamsChatPolicy    = Get-AppRetentionCompliancePolicy -Identity $TeamsChatPolicyName    -ErrorAction SilentlyContinue
 
 if ($CheckExchangePolicy) {
+    Write-Host "-> Policy Exchange confirmée :" -ForegroundColor Green
     [PSCustomObject]@{
         Nom           = $CheckExchangePolicy.Name
         Exchange      = if ($CheckExchangePolicy.ExchangeLocation) { "Oui" } else { "Non" }
         DistribStatus = $CheckExchangePolicy.DistributionStatus
     } | Format-List
+} else {
+    Write-Host "-> ATTENTION : policy Exchange non trouvée lors de la vérification." -ForegroundColor Red
 }
 
 if ($CheckTeamsChannelPolicy) {
+    Write-Host "-> Policy Teams canaux confirmée :" -ForegroundColor Green
     [PSCustomObject]@{
         Nom          = $CheckTeamsChannelPolicy.Name
         Applications = ($CheckTeamsChannelPolicy.Applications -join ", ")
+        DistribStatus = $CheckTeamsChannelPolicy.DistributionStatus
     } | Format-List
+} else {
+    Write-Host "-> ATTENTION : policy Teams canaux non trouvée lors de la vérification." -ForegroundColor Red
 }
 
 if ($CheckTeamsChatPolicy) {
+    Write-Host "-> Policy Teams chats confirmée :" -ForegroundColor Green
     [PSCustomObject]@{
         Nom          = $CheckTeamsChatPolicy.Name
         Applications = ($CheckTeamsChatPolicy.Applications -join ", ")
+        DistribStatus = $CheckTeamsChatPolicy.DistributionStatus
     } | Format-List
+} else {
+    Write-Host "-> ATTENTION : policy Teams chats non trouvée lors de la vérification." -ForegroundColor Red
 }
 
-# --- RÉSUMÉ ---
+# ========================================================================================
+# RÉSUMÉ
+# ========================================================================================
 Write-Host "=== RÉSUMÉ ===" -ForegroundColor Magenta
 [PSCustomObject]@{
-    PolicyExchange    = "$ExchangePolicyName (New-RetentionCompliancePolicy)"
-    PolicyTeamsCanaux = "$TeamsChannelPolicyName (New-AppRetentionCompliancePolicy)"
-    PolicyTeamsChats  = "$TeamsChatPolicyName (New-AppRetentionCompliancePolicy)"
-    Durée             = "365 jours, depuis création"
-    Action            = "KeepAndDelete (suppression automatique, pas de review)"
-    Raison3Policies   = "Exchange (ancienne cmdlet) + 2 scenario groups Teams distincts (canaux vs chats) côté nouvelle architecture AppRetentionCompliance"
+    PolicyExchange     = "$ExchangePolicyName (New-RetentionCompliancePolicy)"
+    PolicyTeamsCanaux  = "$TeamsChannelPolicyName (New-AppRetentionCompliancePolicy)"
+    PolicyTeamsChats   = "$TeamsChatPolicyName (New-AppRetentionCompliancePolicy)"
+    Durée              = "365 jours (1 an), depuis création"
+    Action             = "KeepAndDelete (suppression automatique, sans reviewer)"
+    Raison3Policies    = "Parameter sets mutuellement exclusifs + Teams migré AppRetention + scenario groups distincts canaux vs chats"
+    ÉtapeSuivante      = "Comparer avec 5f : même logique avec Adaptive Scope au lieu de scope statique"
 } | Format-List
 
-Write-Host "Comparer avec 5f (même logique, mais Adaptive Scope au lieu de scope statique).`n" -ForegroundColor Yellow
-
-# --- NETTOYAGE MÉMOIRE ---
+# ========================================================================================
+# NETTOYAGE MÉMOIRE
+# ========================================================================================
 Remove-Variable ExchangePolicyName, ExchangeRuleName,
                 TeamsChannelPolicyName, TeamsChannelRuleName,
                 TeamsChatPolicyName, TeamsChatRuleName, Counter,
@@ -253,7 +329,9 @@ Remove-Variable ExchangePolicyName, ExchangeRuleName,
                 CheckExchangePolicy, CheckTeamsChannelPolicy, CheckTeamsChatPolicy `
                 -ErrorAction SilentlyContinue
 
-# --- FERMETURE ---
+# ========================================================================================
+# FERMETURE — RESET DE SESSION TOTAL
+# ========================================================================================
 Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue
 Get-PSSession | Remove-PSSession
 Write-Host "Sessions fermées proprement." -ForegroundColor Magenta
