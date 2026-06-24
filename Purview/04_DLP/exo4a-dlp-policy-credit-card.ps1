@@ -1,5 +1,5 @@
 # ========================================================================================
-# Exercice 4a : DLP — Création d'une policy simple de protection des numéros de CB
+# Exercice 4a : Purview — DLP — Création d'une policy simple de protection des numéros de CB
 # ========================================================================================
 # Concept : Une DLP policy (Data Loss Prevention) est un objet conteneur qui définit :
 #   - les WORKLOADS surveillés (Exchange, SharePoint, OneDrive, Teams, Devices...)
@@ -17,13 +17,12 @@
 #       └── BlockAccess                          (action : blocage — pas ici en 4a)
 #
 # Ce que fait ce script :
-#   1. Reset total de session (purge toute session résiduelle)
-#   2. Recherche un nom disponible (auto-incrément si déjà pris)
+#   1. Reset total de session
+#   2. Recherche un nom disponible (auto-incrément)
 #   3. Crée la DLP policy sur Exchange + SharePoint + OneDrive
-#   4. Crée la règle de détection (SIT : Credit Card Number, 1+ occurrence)
-#   5. Mode TestWithNotifications : aucun blocage, rapports d'incident générés
-#   6. Vérifie la création depuis la source de vérité
-#   7. Ferme proprement toutes les sessions
+#   4. Crée la règle de détection (SIT : Credit Card Number, Medium, 1+ occurrence)
+#   5. Vérifie la création depuis la source de vérité
+#   6. Ferme proprement toutes les sessions
 #
 # Différence entre les modes :
 #   TestWithoutNotifications : détection silencieuse, logs uniquement, aucun mail
@@ -31,12 +30,12 @@
 #   Enable                   : enforcement réel — les actions (blocage, etc.) s'appliquent
 #
 # Ce script utilise TestWithNotifications — on voit ce qui se passe sans impact utilisateur.
-# L'exo 4d montrera comment passer en Enable, puis revenir en Test.
+# L'exo 4d montrera comment basculer en Enable puis revenir en Test.
 #
 # Prérequis : SIT built-in "Credit Card Number" (natif, aucune création nécessaire)
 #
-# Module requis : ExchangeOnlineManagement (contient les cmdlets Security & Compliance)
-# Connexion : Connect-IPPSSession (Security & Compliance, pas Exchange Online)
+# Module requis : ExchangeOnlineManagement
+# Connexion : Connect-IPPSSession (Security & Compliance — pas Connect-ExchangeOnline)
 # ========================================================================================
 
 # --- OUVERTURE — RESET DE SESSION TOTAL ---
@@ -63,7 +62,7 @@ Connect-IPPSSession -UserPrincipalName GeptorAdmin@0n4mg.onmicrosoft.com
 # ========================================================================================
 # ÉTAPE 1 : Recherche d'un nom disponible (auto-incrément)
 # ========================================================================================
-Write-Host "1. Recherche d'un nom disponible pour la policy..." -ForegroundColor Cyan
+Write-Host "1. Recherche d'un nom disponible..." -ForegroundColor Cyan
 
 # Sur un tenant de dev, on reteste souvent le même script sans attendre que la
 # suppression précédente se propage (le backend Purview peut mettre plusieurs minutes
@@ -78,9 +77,10 @@ while (Get-DlpCompliancePolicy -Identity $PolicyName -ErrorAction SilentlyContin
     $PolicyName = "$BasePolicyName-v$Counter"
     $Counter++
 }
-Write-Host "-> Nom retenu pour la policy : '$PolicyName'`n" -ForegroundColor Green
+Write-Host "-> Nom retenu pour la policy : '$PolicyName'" -ForegroundColor Green
 
-# Même logique pour la règle — elle doit aussi avoir un nom unique dans le tenant
+# Même logique pour la règle — les noms de règles doivent être uniques dans le tenant,
+# indépendamment de la policy parente.
 $BaseRuleName = "RULE-Citadelle-CreditCard-Detection"
 $RuleName     = $BaseRuleName
 $Counter      = 2
@@ -102,15 +102,15 @@ Write-Host "2. Création de la DLP policy '$PolicyName'..." -ForegroundColor Cya
 #   -SharePointLocation "All"  : surveille TOUS les sites SharePoint
 #   -OneDriveLocation "All"    : surveille TOUS les OneDrive For Business
 #
-# Ces trois workloads ensemble couvrent l'essentiel des scénarios de fuite de données
-# documentaires et email. On exclut Teams, Devices et autres workloads avancés pour
-# garder un périmètre cohérent avec le niveau d'un tenant de dev.
+# Ces trois workloads couvrent l'essentiel des scénarios de fuite documentaire et email.
+# On exclut Teams, Devices et autres workloads avancés pour rester cohérent avec le
+# niveau d'un tenant de dev.
 #
 #   -Mode "TestWithNotifications" : démarre en mode test avec rapports d'incident.
 #   Le mode peut être changé après création via Set-DlpCompliancePolicy (cf. exo 4d).
 #
-#   -Comment : champ de documentation interne, visible dans le portail Purview.
-#   Bonne pratique : toujours renseigner — utile pour l'audit et les équipes Sec/Comp.
+#   -Comment : champ de documentation interne visible dans le portail Purview.
+#   Bonne pratique : toujours renseigner pour l'audit et les équipes Sec/Comp.
 try {
     $NewPolicy = New-DlpCompliancePolicy `
         -Name               $PolicyName `
@@ -136,10 +136,10 @@ catch {
 Write-Host "3. Création de la règle '$RuleName'..." -ForegroundColor Cyan
 
 # New-DlpComplianceRule crée la règle à l'intérieur de la policy.
-# Une policy sans règle ne fait rien — c'est la règle qui porte la logique.
+# Une policy sans règle ne fait rien — c'est la règle qui porte la logique de détection.
 #
 # --- CONDITION ---
-# -ContentContainsSensitiveInformation : c'est la condition de détection.
+# -ContentContainsSensitiveInformation : condition de détection SIT.
 # On lui passe un TABLEAU de hashtables (même pour un seul SIT — le tableau est obligatoire).
 #
 # PIÈGE 1 — clés en minuscules strictes :
@@ -152,40 +152,33 @@ Write-Host "3. Création de la règle '$RuleName'..." -ForegroundColor Cyan
 # PIÈGE 2 — confidencelevel remplace minconfidence :
 # Les clés "minconfidence" et "maxconfidence" sont dépréciées depuis le module v3.
 # La clé attendue est "confidencelevel" avec les valeurs textuelles "High", "Medium", "Low".
-# Passer "minconfidence" génère un WARNING mais fonctionne encore — on utilise
-# "confidencelevel" pour éviter le bruit et rester sur l'API courante.
 #
 # Pour "Credit Card Number", les niveaux correspondent à :
 #   Low    : pattern regex seul — plus de faux positifs
 #   Medium : regex + checksum Luhn valide
 #   High   : regex + Luhn + mot-clé proche (Visa, MasterCard, etc.)
-#
 # On utilise "Medium" — bon équilibre détection / faux positifs sur tenant dev.
-# En production, on monte souvent à "High" pour réduire le bruit.
 #
 # -AccessScope "NotInOrganization" : la règle se déclenche uniquement quand le contenu
-# est partagé vers l'EXTÉRIEUR du tenant. On ne bloque pas la circulation interne.
+# est partagé vers l'EXTÉRIEUR du tenant.
 # Valeurs possibles :
 #   NotInOrganization : partage externe (email sortant, lien SPO public, etc.)
 #   InOrganization    : trafic interne uniquement
 #   All               : interne + externe
 #
 # --- ACTIONS ---
-# -GenerateIncidentReport "SiteAdmin" : envoie un rapport d'incident à l'admin du site
-# (pour SPO/ODfB) ou à l'admin Exchange.
-# -IncidentReportContent @("All") : inclut tout dans le rapport (contenu détecté,
-# règle déclenchée, utilisateur, heure, etc.)
+# -GenerateIncidentReport "SiteAdmin" : rapport d'incident envoyé à l'admin du site
+# (SPO/ODfB) ou à l'admin Exchange.
+# -IncidentReportContent @("All") : inclut tout dans le rapport.
 #
 # PIÈGE 3 — NotifyUser "LastModifier", pas "LastModifiedBy" :
 # La doc Microsoft Learn indique "LastModifiedBy" — la valeur réellement acceptée
 # par l'API REST v3 est "LastModifier" (sans "By").
 # Valeurs valides : "LastModifier", "Owner", "SiteAdmin", adresse SMTP explicite.
 #
-# Note : -BlockAccess n'est PAS défini ici — c'est volontaire.
+# Note : -BlockAccess n'est PAS défini ici — volontaire.
 # En mode TestWithNotifications, même avec BlockAccess=$true, rien n'est bloqué.
-# On l'ajoute explicitement en 4b pour la démonstration avec une policy dédiée.
-
-# Tableau de hashtables — clés en minuscules, confidencelevel en valeur textuelle
+# On l'ajoute explicitement en 4b pour la démonstration du blocage actif.
 $SITCondition = @(
     @{
         name            = "Credit Card Number"
@@ -203,7 +196,7 @@ try {
         -GenerateIncidentReport              "SiteAdmin" `
         -IncidentReportContent               @("All") `
         -NotifyUser                          "LastModifier" `
-        -Comment                             "Exo 4a — Detection CB (Medium), rapport + notification, aucun blocage." `
+        -Comment                             "Exo 4a — Détection CB (Medium, 1+), rapport + notification, aucun blocage." `
         -ErrorAction Stop
 
     Write-Host "-> Règle créée : $($NewRule.Name)" -ForegroundColor Green
@@ -223,9 +216,10 @@ catch {
 # ========================================================================================
 Write-Host "4. Vérification depuis le backend Purview..." -ForegroundColor Cyan
 
-# On relit depuis l'API plutôt que de faire confiance à l'objet local retourné
+# REX : on relit depuis l'API plutôt que de faire confiance à l'objet local retourné
 # par New-DlpCompliancePolicy — le backend peut avoir normalisé certaines valeurs.
-Start-Sleep -Seconds 3
+# 30 secondes couvrent la latence de propagation du backend Purview.
+Start-Sleep -Seconds 30
 
 $CheckPolicy = Get-DlpCompliancePolicy -Identity $PolicyName -ErrorAction SilentlyContinue
 $CheckRule   = Get-DlpComplianceRule   -Policy   $PolicyName -ErrorAction SilentlyContinue
@@ -265,15 +259,15 @@ Write-Host "=== RÉSUMÉ ===" -ForegroundColor Magenta
 
 # Note sur DistributionStatus :
 # Après création, la policy affiche "Pending" — c'est normal.
-# Le backend Purview distribue la policy vers les workloads (Exchange, SPO, ODfB) en
-# arrière-plan. Ce processus prend quelques minutes à quelques heures selon les workloads.
+# Le backend Purview distribue la policy vers les workloads (Exchange, SPO, ODfB)
+# en arrière-plan. Ce processus prend quelques minutes à quelques heures.
 # "Success" confirme que la distribution est terminée.
 # "Pending" au moment de l'exo est attendu — pas un problème.
 [PSCustomObject]@{
     PolicyCréée      = $PolicyName
     RègleCréée       = $RuleName
     Mode             = "TestWithNotifications"
-    SITSurveillé     = "Credit Card Number (Medium)"
+    SITSurveillé     = "Credit Card Number (Medium, 1+ occurrence)"
     Workloads        = "Exchange, SharePoint, OneDrive"
     ActionBlocage    = "Aucune (mode test)"
     RapportIncident  = "Oui (SiteAdmin)"
