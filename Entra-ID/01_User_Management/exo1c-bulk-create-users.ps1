@@ -1,5 +1,5 @@
 # ========================================================================================
-# Exercice 2bis : Entra ID — Création en masse d'utilisateurs depuis CSV (Bulk)
+# Exercice 1c : Entra ID — Création en masse d'utilisateurs depuis CSV (Bulk)
 # ========================================================================================
 # Concept : Industrialisation du provisioning via Import-Csv + boucle ForEach.
 # Contrairement à l'exercice 2 (unitaire), on délègue la définition des comptes
