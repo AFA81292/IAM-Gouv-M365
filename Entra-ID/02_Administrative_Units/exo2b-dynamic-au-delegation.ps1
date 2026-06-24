@@ -1,5 +1,5 @@
 # ========================================================================================
-# Exercice 3b : Entra ID — Création d'une AU dynamique avec règle d'appartenance
+# Exercice 2b : Entra ID — Création d'une AU dynamique avec règle d'appartenance
 # ========================================================================================
 # Concept : Une AU dynamique peuple ses membres automatiquement selon une règle
 # basée sur les attributs Entra (ex : Department, Country, JobTitle).
