@@ -7,28 +7,42 @@
 #
 # Architecture d'un SIT custom — comprendre avant de lire le XML :
 #
-#   Purview ne permet pas de créer un SIT custom via une cmdlet simple avec des
-#   paramètres. Il exige un fichier XML complet appelé "Rule Package" qui décrit
-#   intégralement le SIT : son identifiant unique, ses patterns de détection,
-#   ses niveaux de confiance, ses mots-clés corroborants, et ses métadonnées.
-#
+#   Purview n'expose pas de cmdlet simple pour créer un SIT custom avec des paramètres.
+#   Il exige un fichier XML complet appelé "Rule Package" qui décrit intégralement
+#   le SIT : son identifiant unique, ses patterns de détection, ses niveaux de confiance,
+#   ses mots-clés corroborants, et ses métadonnées.
 #   Ce XML est ensuite uploadé dans Purview via une cmdlet dédiée.
 #   C'est verbeux, mais c'est le seul chemin pour du SIT custom en PowerShell.
 #
 # Logique de détection à deux niveaux de confiance :
 #
-#   Purview ne fait pas que "trouve ou trouve pas". Il évalue une confiance (0-100).
+#   Purview ne fait pas que "trouve ou trouve pas" — il évalue une confiance (0-100).
 #   On définit deux scénarios :
 #
 #   → Confiance HAUTE (85) : le regex matche ET un mot-clé corroborant est présent
-#     dans les 300 caractères autour du match (ex: "badge", "matricule").
-#     Exemple : "Le badge de Shepard est GCORP-12345" → 85
+#     dans les 300 caractères autour du match (ex : "badge", "matricule").
+#     Exemple : "Le badge de Shepard est GCORP-12345" → confiance 85
 #
 #   → Confiance MOYENNE (75) : le regex matche seul, sans mot-clé autour.
-#     Exemple : un fichier contient "GCORP-12345" sans contexte → 75
+#     Exemple : un fichier contient "GCORP-12345" sans contexte → confiance 75
 #
 #   Dans une DLP policy, on choisira ensuite à partir de quel seuil déclencher
 #   une action. C'est là que ces niveaux deviennent utiles opérationnellement.
+#
+# Remarque sur l'auto-incrément :
+#   Les SITs sont identifiés par leur GUID interne ($EntityId), généré dynamiquement
+#   à chaque exécution. Il n'y a pas de collision sur le nom — si un SIT du même nom
+#   existe déjà, Purview créera quand même un second objet avec un GUID différent.
+#   Sur un tenant de dev, on supprime l'ancien avant de recréer. Pas d'auto-incrément
+#   nécessaire ici, contrairement aux policies DLP où le nom fait office de clé unique.
+#
+# Ce que fait ce script :
+#   1. Reset total de session
+#   2. Génère les identifiants uniques (GUIDs) du package et du SIT
+#   3. Construit le Rule Package XML avec patterns de détection et keywords
+#   4. Uploade le Rule Package dans Purview
+#   5. Vérifie la création depuis la source de vérité
+#   6. Ferme proprement toutes les sessions
 #
 # Cas d'usage réel :
 #   - Détecter des identifiants internes propriétaires (matricules RH, numéros contrat)
@@ -36,12 +50,11 @@
 #   - Base indispensable avant de créer une DLP policy sur des données maison
 #
 # Module requis : ExchangeOnlineManagement
-# Connexion : Connect-IPPSSession
+# Connexion     : Connect-IPPSSession
 # ========================================================================================
 
-# --- OUVERTURE ---
-# Fermeture de toutes les sessions PowerShell actives
-# Get-PSSession | Remove-PSSession est préféré à Disconnect-ExchangeOnline -Confirm:$false
+# --- OUVERTURE — RESET DE SESSION TOTAL ---
+# REX : Get-PSSession | Remove-PSSession est préféré à Disconnect-ExchangeOnline -Confirm:$false
 # car les versions récentes du module ExchangeOnlineManagement ignorent -Confirm:$false
 # et affichent une confirmation interactive qui bloque le script.
 # Get-PSSession récupère toutes les sessions PS actives (IPPS, ExchangeOnline, autres)
@@ -49,29 +62,33 @@
 Get-PSSession | Remove-PSSession
 Connect-IPPSSession -UserPrincipalName GeptorAdmin@0n4mg.onmicrosoft.com -ShowBanner:$false
 
-# --- ÉTAPE 1 : Génération des identifiants uniques ---
+# ========================================================================================
+# ÉTAPE 1 : Génération des identifiants uniques
+# ========================================================================================
 Write-Host "1. Génération des identifiants uniques..." -ForegroundColor Cyan
 
 # Purview identifie chaque Rule Package et chaque SIT par un GUID unique.
-# On les génère dynamiquement pour éviter les collisions si on recrée le script.
+# On les génère dynamiquement à chaque exécution pour éviter les collisions.
 #
 # IMPORTANT sur le format :
-#   [guid]::NewGuid().ToString()      → "{xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}" AVEC accolades
-#   [guid]::NewGuid().ToString("D")   → "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"  SANS accolades
+#   [guid]::NewGuid().ToString()    → "{xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}" AVEC accolades
+#   [guid]::NewGuid().ToString("D") → "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"  SANS accolades
 #
 # Purview valide les GUIDs dans le XML contre un schéma strict (GuidType) qui
 # INTERDIT les accolades. Sans le format "D", l'upload échoue avec une erreur
 # de validation de schéma. D'où le ToString("D") explicite.
-$RulePackageId = [guid]::NewGuid().ToString("D")
-$EntityId      = [guid]::NewGuid().ToString("D")
+$RulePackageId  = [guid]::NewGuid().ToString("D")
+$EntityId       = [guid]::NewGuid().ToString("D")
 
 $SITName        = "Cerberus Corp - Numéro de Badge Interne"
 $SITDescription = "Détecte les numéros de badge internes Cerberus Corp au format GCORP-XXXXX"
 
 Write-Host "-> RulePackageId : $RulePackageId" -ForegroundColor Green
-Write-Host "-> EntityId      : $EntityId`n" -ForegroundColor Green
+Write-Host "-> EntityId      : $EntityId`n"    -ForegroundColor Green
 
-# --- ÉTAPE 2 : Construction du Rule Package XML ---
+# ========================================================================================
+# ÉTAPE 2 : Construction du Rule Package XML
+# ========================================================================================
 Write-Host "2. Construction du Rule Package XML..." -ForegroundColor Cyan
 
 # Le Rule Package XML est structuré en deux grandes sections :
@@ -82,15 +99,14 @@ Write-Host "2. Construction du Rule Package XML..." -ForegroundColor Cyan
 #   C'est une convention Microsoft — le publisher "s'identifie" avec le même ID que son package.
 #
 # SECTION 2 — Rules : le contenu technique du SIT
-#   Entity      : le SIT lui-même, référencé par $EntityId
-#   Pattern     : une combinaison de détection (regex + optionnellement keywords)
-#   Regex       : le pattern de détection — ici GCORP- suivi de exactement 5 chiffres
-#   Keyword     : les mots corroborants — leur présence près du match augmente la confiance
+#   Entity           : le SIT lui-même, référencé par $EntityId
+#   Pattern          : une combinaison de détection (regex + optionnellement keywords)
+#   Regex            : le pattern de détection — ici GCORP- suivi de exactement 5 chiffres
+#   Keyword          : les mots corroborants — leur présence près du match augmente la confiance
 #   LocalizedStrings : le nom et la description affichés dans le portail Purview
 #
 # patternsProximity="300" : Purview cherche les keywords corroborants dans un rayon
 #   de 300 caractères autour du match regex. Au-delà, le keyword est ignoré.
-
 $RulePackageXml = @"
 <?xml version="1.0" encoding="utf-8"?>
 <RulePackage xmlns="http://schemas.microsoft.com/office/2011/mce">
@@ -156,28 +172,36 @@ $RulePackageXml = @"
 </RulePackage>
 "@
 
-Write-Host "-> XML construit." -ForegroundColor Green
+Write-Host "-> XML construit.`n" -ForegroundColor Green
 
-# --- ÉTAPE 3 : Upload du Rule Package dans Purview ---
-Write-Host "`n3. Upload du Rule Package dans Purview..." -ForegroundColor Cyan
+# ========================================================================================
+# ÉTAPE 3 : Upload du Rule Package dans Purview
+# ========================================================================================
+Write-Host "3. Upload du Rule Package dans Purview..." -ForegroundColor Cyan
 
+# Purview exige de l'UTF-8 SANS BOM (Byte Order Mark).
+# [System.Text.Encoding]::UTF8 inclut un BOM par défaut → Purview rejette avec 0x00 errors.
+# UTF8Encoding::new($false) : le paramètre $false = emitBOM:$false → pas de BOM.
 try {
-    # Purview exige de l'UTF-8 SANS BOM (Byte Order Mark).
-    # [System.Text.Encoding]::UTF8 inclut un BOM par défaut → Purview rejette avec 0x00 errors.
-    # UTF8Encoding::new($false) : le paramètre $false = emitBOM:$false → pas de BOM.
     $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
     $XmlBytes  = $Utf8NoBom.GetBytes($RulePackageXml)
     New-DlpSensitiveInformationTypeRulePackage -FileData $XmlBytes -ErrorAction Stop
-    Write-Host "-> Rule Package uploadé avec succès." -ForegroundColor Green
+    Write-Host "-> Rule Package uploadé avec succès.`n" -ForegroundColor Green
 }
 catch {
-    Write-Host "-> Échec upload : $_" -ForegroundColor Red
+    Write-Host "-> Échec de l'upload : $_" -ForegroundColor Red
+    Get-PSSession | Remove-PSSession
     return
 }
 
-# --- ÉTAPE 4 : Vérification ---
-# La propagation dans Purview prend environ 30 secondes après l'upload
-Write-Host "`n4. Vérification (propagation ~30s)..." -ForegroundColor Cyan
+# ========================================================================================
+# ÉTAPE 4 : Vérification depuis la source de vérité
+# ========================================================================================
+Write-Host "4. Vérification (propagation ~30s)..." -ForegroundColor Cyan
+
+# REX : la réplication d'un nouveau SIT dans Purview prend environ 30 secondes.
+# En dessous, Get-DlpSensitiveInformationType retourne $null même si l'upload a réussi.
+# 30 secondes est le seuil minimal fiable observé sur tenant dev.
 Start-Sleep -Seconds 30
 
 $NewSIT = Get-DlpSensitiveInformationType | Where-Object { $_.Name -eq $SITName }
@@ -187,19 +211,37 @@ if ($NewSIT) {
     [PSCustomObject]@{
         Nom                   = $NewSIT.Name
         Editeur               = $NewSIT.Publisher
-        ConfidenceRecommandee = $NewSIT.RecommendedConfidence
+        ConfidenceRecommandée = $NewSIT.RecommendedConfidence
         OccurrencesMin        = $NewSIT.MinCount
         OccurrencesMax        = $NewSIT.MaxCount
     } | Format-List
 } else {
-    Write-Host "-> SIT pas encore visible — réplication en cours." -ForegroundColor Yellow
-    Write-Host "-> Vérifie dans Purview portal > Data Classification > Sensitive info types." -ForegroundColor Yellow
+    Write-Host "-> SIT pas encore visible — réplication encore en cours." -ForegroundColor Yellow
+    Write-Host "   Vérifier dans : Purview portal > Data Classification > Sensitive info types." -ForegroundColor Yellow
 }
 
-# --- NETTOYAGE MÉMOIRE ---
-Remove-Variable RulePackageId, EntityId, SITName, SITDescription, RulePackageXml, `
-                Utf8NoBom, XmlBytes, NewSIT -ErrorAction SilentlyContinue
+# ========================================================================================
+# RÉSUMÉ
+# ========================================================================================
+Write-Host "=== RÉSUMÉ ===" -ForegroundColor Magenta
+[PSCustomObject]@{
+    SITCréé               = $SITName
+    FormatDétecté         = "GCORP-XXXXX (5 chiffres)"
+    ConfidenceHaute       = "85 — regex + keyword corroborant dans 300 caractères"
+    ConfidenceMoyenne     = "75 — regex seul, sans contexte"
+    KeywordsCorroborants  = "badge, matricule, identifiant, cerberus"
+    ProchainePourSuiteExo = "Utiliser ce SIT comme condition dans une DLP policy (exo 4a/4b)"
+} | Format-List
 
-# --- FERMETURE ---
+# ========================================================================================
+# NETTOYAGE MÉMOIRE
+# ========================================================================================
+Remove-Variable RulePackageId, EntityId, SITName, SITDescription, RulePackageXml, `
+                Utf8NoBom, XmlBytes, NewSIT `
+                -ErrorAction SilentlyContinue
+
+# ========================================================================================
+# FERMETURE — RESET DE SESSION TOTAL
+# ========================================================================================
 Get-PSSession | Remove-PSSession
-Write-Host "`nSession fermée. Mémoire locale nettoyée." -ForegroundColor Magenta
+Write-Host "Sessions fermées proprement." -ForegroundColor Magenta
