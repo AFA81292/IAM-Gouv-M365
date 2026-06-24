@@ -13,9 +13,9 @@
 #   5. Vérifie l'activation du moteur de règle depuis la source de vérité
 #   6. Ferme proprement toutes les sessions
 #
-# Différence clé vs exercice 4a (statique) :
-#   4a : GroupTypes = @()                  → membership manuel via CSV
-#   4b : GroupTypes = @("DynamicMembership") → membership calculé par règle Entra
+# Différence clé vs exercice 3a (statique) :
+#   3a : GroupTypes = @()                  → membership manuel via CSV
+#   3b : GroupTypes = @("DynamicMembership") → membership calculé par règle Entra
 #
 # Types de groupes Graph — la combinaison de 3 paramètres définit le type :
 #
