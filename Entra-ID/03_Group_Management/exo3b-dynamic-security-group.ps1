@@ -1,5 +1,5 @@
 # ========================================================================================
-# Exercice 4b : Entra ID — Création d'un Security Group dynamique avec règle de membership
+# Exercice 3b : Entra ID — Création d'un Security Group dynamique avec règle de membership
 # ========================================================================================
 # Concept : Un Security Group dynamique peuple ses membres automatiquement via une règle
 # basée sur les attributs Entra (Department, Country, JobTitle, etc.).
