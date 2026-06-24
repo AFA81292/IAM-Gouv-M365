@@ -1,5 +1,5 @@
 # ========================================================================================
-# Exercice 4b : DLP — Policy avec règle de blocage, seuil et notification utilisateur
+# Exercice 4b : Purview — DLP — Policy avec règle de blocage, seuil et notification
 # ========================================================================================
 # Concept : Cet exercice est le pendant de 4a en mode enforcement réel.
 # En 4a : mode Test, détection seule, aucun impact utilisateur.
@@ -136,7 +136,7 @@ $SITCondition = @(
 #
 # -NotifyUserType "NotifyOnly" :
 #   Détermine la nature de la notification utilisateur.
-#   "NotifyOnly"     : information seule, aucune action possible côté utilisateur.
+#   "NotifyOnly"        : information seule, aucune action possible côté utilisateur.
 #   "BlockWithOverride" : voir -AllowOverride ci-dessous.
 #   Note : ce paramètre interagit avec -AllowOverride.
 #
@@ -183,7 +183,11 @@ catch {
 # ÉTAPE 4 : Vérification depuis la source de vérité
 # ========================================================================================
 Write-Host "4. Vérification depuis le backend Purview..." -ForegroundColor Cyan
-Start-Sleep -Seconds 3
+
+# REX : on relit depuis l'API plutôt que de faire confiance à l'objet local retourné
+# par New-DlpCompliancePolicy — le backend peut avoir normalisé certaines valeurs.
+# 30 secondes couvrent la latence de propagation du backend Purview.
+Start-Sleep -Seconds 30
 
 $CheckPolicy = Get-DlpCompliancePolicy -Identity $PolicyName -ErrorAction SilentlyContinue
 $CheckRule   = Get-DlpComplianceRule   -Policy   $PolicyName -ErrorAction SilentlyContinue
@@ -205,14 +209,14 @@ if ($CheckPolicy) {
 if ($CheckRule) {
     Write-Host "-> Règle confirmée :" -ForegroundColor Green
     [PSCustomObject]@{
-        Nom              = $CheckRule.Name
-        PolicyParente    = $CheckRule.ParentPolicyName
-        Désactivée       = $CheckRule.Disabled
-        AccessScope      = $CheckRule.AccessScope
-        BlocageActif     = $CheckRule.BlockAccess
-        PortéeBlocage    = $CheckRule.BlockAccessScope
-        NotifUser        = ($CheckRule.NotifyUser -join ", ")
-        RapportIncident  = "SiteAdmin"
+        Nom             = $CheckRule.Name
+        PolicyParente   = $CheckRule.ParentPolicyName
+        Désactivée      = $CheckRule.Disabled
+        AccessScope     = $CheckRule.AccessScope
+        BlocageActif    = $CheckRule.BlockAccess
+        PortéeBlocage   = $CheckRule.BlockAccessScope
+        NotifUser       = ($CheckRule.NotifyUser -join ", ")
+        RapportIncident = "SiteAdmin"
     } | Format-List
 } else {
     Write-Host "-> ATTENTION : règle non trouvée lors de la vérification." -ForegroundColor Red
