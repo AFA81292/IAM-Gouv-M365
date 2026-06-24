@@ -1,46 +1,99 @@
-# ==============================================================================
-# EXERCICE 2bis : Industrialisation et création d'utilisateurs en masse (Bulk)
-# Emplacement lab : D:\Documents\ScriptsPowerShell
-# Objectif : Importer utilisateurs.csv et provisionner les comptes à la volée.
-# Concepts clés : Import-Csv, Boucle ForEach, Splatting dynamique, Try/Catch.
-# ==============================================================================
+# ========================================================================================
+# Exercice 2bis : Entra ID — Création en masse d'utilisateurs depuis CSV (Bulk)
+# ========================================================================================
+# Concept : Industrialisation du provisioning via Import-Csv + boucle ForEach.
+# Contrairement à l'exercice 2 (unitaire), on délègue la définition des comptes
+# à un fichier CSV externe — le script ne connaît pas les utilisateurs à l'avance.
+#
+# Ce que fait ce script :
+#   1. Reset total de session
+#   2. Vérifie la présence du fichier CSV
+#   3. Importe les lignes et provisionne chaque compte via New-MgUser
+#   4. Gère les erreurs ligne par ligne (Try/Catch) sans interrompre le traitement
+#   5. Ferme proprement toutes les sessions
+#
+# Concepts clés : Import-Csv, ForEach, Splatting dynamique, Try/Catch
+#
+# Fichier CSV attendu : utilisateurs.csv
+# Colonnes requises   : DisplayName, MailNickName, UserPrincipalName,
+#                       Country, Department, JobTitle, City
+#
+# Personnages test    : masse de comptes Witcher/Mass Effect sur le tenant de dev
+#                       (0n4mg.onmicrosoft.com)
+#
+# Module requis : Microsoft.Graph.Users
+# Connexion     : Connect-MgGraph
+# ========================================================================================
 
-# 1. Connexion à l'API Microsoft Graph avec les privilèges d'écriture
+# --- OUVERTURE — RESET DE SESSION TOTAL ---
+# REX : une session MgGraph résiduelle avec des scopes insuffisants ne lève pas
+# d'erreur immédiate — elle échoue silencieusement à la première écriture.
+# Sur un script bulk, un tel échec silencieux ferait planter TOUS les comptes
+# sans message clair. On repart d'une session propre sans exception.
+Disconnect-MgGraph -ErrorAction SilentlyContinue
 Connect-MgGraph -Scopes "User.ReadWrite.All"
 
-# 2. Définition du chemin du fichier CSV - WARNING - a decommenter la ligne necessaire : 
-# EN LABO/Local :
- $PathCSV = "D:\Documents\ScriptsPowerShell\utilisateurs.csv"
+# ========================================================================================
+# ÉTAPE 1 : Localisation et validation du fichier CSV
+# ========================================================================================
+Write-Host "1. Vérification du fichier CSV..." -ForegroundColor Cyan
 
-# EN PRODUCTION : 
+# WARNING : décommenter la ligne correspondant à l'environnement d'exécution.
+#
+# EN LABO / Local :
+$PathCSV = "D:\Documents\ScriptsPowerShell\utilisateurs.csv"
+#
+# EN PRODUCTION :
 # $PathCSV = "$PSScriptRoot\utilisateurs.csv"
+# $PSScriptRoot résout automatiquement le dossier contenant le script en cours
+# d'exécution — portable, indépendant de la machine ou du profil utilisateur.
 
-# Vérification de sécurité : On s'assure que le fichier CSV est bien présent dans le dossier
 if (-not (Test-Path $PathCSV)) {
-    Write-Error "Erreur : Le fichier 'utilisateurs.csv' est introuvable dans $PathCSV !"
-    exit
+    Write-Host "-> Erreur : fichier introuvable à l'emplacement '$PathCSV'." -ForegroundColor Red
+    Disconnect-MgGraph -ErrorAction SilentlyContinue
+    return
 }
+Write-Host "-> Fichier CSV localisé : $PathCSV`n" -ForegroundColor Green
 
-# 3. Importation et lecture du fichier CSV (Séparateur : virgule, encodage UTF8 via Notepad++)
+# ========================================================================================
+# ÉTAPE 2 : Import du CSV
+# ========================================================================================
+Write-Host "2. Import du fichier CSV..." -ForegroundColor Cyan
+
+# Séparateur virgule — cohérent avec le fichier généré via Notepad++ en UTF-8.
+# DÉCOUVERTE TECHNIQUE : Excel enregistre parfois en UTF-8 avec BOM ou en ANSI
+# selon la version. Si les accents apparaissent corrompus dans la console,
+# vérifier l'encodage du CSV (ouvrir dans Notepad++, vérifier Encodage > UTF-8 sans BOM).
 $UsersToCreate = Import-Csv -Path $PathCSV -Delimiter ","
 
-# Pool de caractères pour la génération des mots de passe aléatoires
+Write-Host "-> $($UsersToCreate.Count) compte(s) détecté(s) dans le CSV.`n" -ForegroundColor Green
+
+# Pool de caractères pour la génération des mots de passe.
+# Même jeu que l'exercice 2 : pas de caractères ambigus, 16 caractères par compte.
+# Un mot de passe distinct est généré pour chaque utilisateur dans la boucle.
 $Chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$"
 
-Write-Host "--- Début du Provisioning en Masse ($($UsersToCreate.Count) comptes détectés) ---`n" -ForegroundColor Cyan
+# ========================================================================================
+# ÉTAPE 3 : Provisioning en boucle
+# ========================================================================================
+Write-Host "3. Début du provisioning ($($UsersToCreate.Count) compte(s))..." -ForegroundColor Cyan
+Write-Host "-------------------------------------------------------------------" -ForegroundColor Gray
 
-# 4. Traitement ligne par ligne du CSV via la boucle foreach
 foreach ($User in $UsersToCreate) {
-    
-    # Génération d'un mot de passe unique et complexe pour CHAQUE utilisateur (16 caractères)
+
+    # Mot de passe unique par utilisateur — généré à chaque itération de la boucle.
+    # Ne pas sortir cette ligne de la boucle : tous les comptes auraient le même password.
     $AutoGeneratedPassword = -join (1..16 | ForEach-Object { $Chars.ToCharArray() | Get-Random })
-    
+
     $PasswordProfile = @{
         Password                      = $AutoGeneratedPassword
         ForceChangePasswordNextSignIn = $true
     }
 
-    # 5. Splatting dynamique : On mappe les colonnes du CSV ($User.NomDeLaColonne)
+    # Splatting dynamique : les colonnes du CSV alimentent directement les paramètres.
+    # $User.NomDeLaColonne = valeur de la cellule sur la ligne en cours de traitement.
+    # Si une colonne est absente du CSV ou vide, la propriété correspondante sera $null
+    # dans Graph — pas d'erreur levée, mais la propriété ne sera pas renseignée.
     $UserParams = @{
         DisplayName       = $User.DisplayName
         MailNickName      = $User.MailNickName
@@ -51,50 +104,80 @@ foreach ($User in $UsersToCreate) {
         Department        = $User.Department
         JobTitle          = $User.JobTitle
         City              = $User.City
-        
     }
 
-    # 6. Bloc de sécurité Try/Catch pour gérer les erreurs d'exécution (ex: doublons)
+    # Try/Catch par ligne : si un compte plante (doublon UPN, champ invalide, quota Graph),
+    # le script affiche l'erreur en rouge et CONTINUE vers la ligne suivante.
+    # Sans Try/Catch, la première erreur arrête toute la boucle — comportement inacceptable
+    # en bulk où on veut maximiser le nombre de comptes créés en un seul passage.
     try {
-        # Exécution de la création dans Entra ID
         $NewUser = New-MgUser @UserParams
-        
-        # Log de succès en vert dans la console
-        Write-Host "[SUCCESS] Compte créé : $($NewUser.UserPrincipalName) | Password : $AutoGeneratedPassword" -ForegroundColor Green
+        Write-Host "[SUCCESS] $($NewUser.UserPrincipalName) | Password : $AutoGeneratedPassword" -ForegroundColor Green
     }
     catch {
-        # Si une ligne plante, on affiche l'erreur en rouge et le script passe à la suite
-        Write-Host "[ERROR] Échec pour $($User.UserPrincipalName) : $_" -ForegroundColor Red
+        Write-Host "[ERROR]   $($User.UserPrincipalName) — $_" -ForegroundColor Red
     }
 }
 
-Write-Host "`n--- Fin du traitement automatique ---" -ForegroundColor Cyan
+Write-Host "-------------------------------------------------------------------" -ForegroundColor Gray
+Write-Host "-> Traitement terminé.`n" -ForegroundColor Cyan
 
-# 7. Nettoyage de la mémoire (Zéro résidu de variables en fin d'exécution)
-Remove-Variable PathCSV, UsersToCreate, Chars, AutoGeneratedPassword, PasswordProfile, UserParams -ErrorAction SilentlyContinue
+# ========================================================================================
+# ÉTAPE 4 : Résumé
+# ========================================================================================
+Write-Host "=== RÉSUMÉ ===" -ForegroundColor Magenta
 
+# Note architecture bulk vs unitaire :
+#
+#   Exercice 2  (unitaire) : paramètres codés en dur dans le script, auto-incrément UPN,
+#                            vérification individuelle post-création via Get-MgUser.
+#   Exercice 2bis (bulk)   : paramètres externalisés dans CSV, Try/Catch par ligne,
+#                            pas de vérification post-création (volume trop élevé).
+#
+# En production, on compléterait ce script par un export CSV des résultats
+# (UPN + password + statut SUCCESS/ERROR) pour traçabilité et remise aux managers.
+[PSCustomObject]@{
+    FichierCSV       = $PathCSV
+    ComptesDétectés  = $UsersToCreate.Count
+    Module           = "Microsoft.Graph.Users"
+    ForceChangePwd   = "Oui (à la première connexion)"
+    GestionErreurs   = "Try/Catch par ligne — pas d'interruption sur erreur"
+} | Format-List
 
+# ========================================================================================
+# NETTOYAGE MÉMOIRE
+# ========================================================================================
+Remove-Variable PathCSV, UsersToCreate, Chars, AutoGeneratedPassword,
+                PasswordProfile, UserParams, NewUser `
+                -ErrorAction SilentlyContinue
 
+# ========================================================================================
+# FERMETURE — RESET DE SESSION TOTAL
+# ========================================================================================
+Disconnect-MgGraph -ErrorAction SilentlyContinue
+Write-Host "Session MgGraph fermée proprement." -ForegroundColor Magenta
 
-
-
-# **Note — Bulk create via GUI (Entra Admin Center) :**
+# ========================================================================================
+# NOTE PÉDAGOGIQUE : Bulk create via GUI (Entra Admin Center)
+# ========================================================================================
 # La même opération est réalisable via Entra ID > Users > Bulk operations > Bulk create.
-# Microsoft fournit un template CSV avec ses propres colonnes — format incompatible avec le CSV de ce script.
+# Microsoft fournit un template CSV avec ses propres colonnes — format incompatible
+# avec le CSV de ce script.
 #
 # Colonnes obligatoires du template Microsoft :
-# - `version:v1.0` — ligne de version en tête de fichier, obligatoire
-# - `Name [displayName]` — nom affiché
-# - `User name [userPrincipalName]` — identifiant de connexion
-# - `Initial password [passwordProfile]` — password statique défini dans le CSV
-# - `Block sign in (Yes/No) [accountEnabled]` — compte actif ou bloqué
+#   - version:v1.0                          — ligne de version en tête de fichier
+#   - Name [displayName]                    — nom affiché
+#   - User name [userPrincipalName]         — identifiant de connexion
+#   - Initial password [passwordProfile]    — password statique défini dans le CSV
+#   - Block sign in (Yes/No) [accountEnabled]
 #
 # Colonnes optionnelles notables :
-# - `First name [givenName]` / `Last name [surname]`
-# - `Job title [jobTitle]`
-# - `Department [department]`
-# - `Usage location [usageLocation]` — obligatoire pour assigner des licences ensuite
+#   - First name [givenName] / Last name [surname]
+#   - Job title [jobTitle]
+#   - Department [department]
+#   - Usage location [usageLocation] — obligatoire pour assigner des licences ensuite
 #
-# Différence clé : le password est statique dans le template GUI,
-# alors que ce script génère un password aléatoire par utilisateur.
-# Avantage script : flexibilité des paramètres, passwords uniques, automatisable.
+# Différence clé vs ce script :
+#   - GUI : password statique identique pour tous, défini dans le CSV
+#   - Script : password aléatoire unique par utilisateur, généré à l'exécution
+#   Avantage script : flexibilité des paramètres, passwords uniques, automatisable en pipeline.
