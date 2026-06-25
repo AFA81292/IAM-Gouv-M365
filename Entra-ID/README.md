@@ -14,7 +14,7 @@ Connexion standard (lecture seule, opérations basiques) :
 Connect-MgGraph -Scopes "User.Read.All", "Group.Read.All"
 ```
 
-Les exercices d'écriture (CA, PIM, Access Reviews) nécessitent `-ContextScope Process` pour bypasser le cache WAM :
+Les exercices d'écriture (CA, PIM, Access Reviews, RBAC) nécessitent `-ContextScope Process` pour bypasser le cache WAM :
 ```powershell
 Connect-MgGraph -Scopes "Policy.ReadWrite.ConditionalAccess" -ContextScope Process
 ```
@@ -22,24 +22,53 @@ Connect-MgGraph -Scopes "Policy.ReadWrite.ConditionalAccess" -ContextScope Proce
 ## Index des Exercices (1 fichier = 1 exo)
 
 ### 01_User_Management
-* [Exo 1a : Création d'un rôle personnalisé](./01_User_Management/exo1a-custom-role.ps1)
-  * Objectif : Déploiement d'un rôle RBAC granulaire pour la création d'applications.
-  * Connexion requise : `Connect-MgGraph -Scopes "RoleManagement.ReadWrite.Directory"` + `-ContextScope Process`
-  * Licence requise : Entra ID P1/P2
-* [Exo 1b : Création unitaire d'un utilisateur](./01_User_Management/exo1b-create-user.ps1)
+
+#### Provisioning
+* [Exo 1a : Création unitaire d'un utilisateur](./01_User_Management/exo1a-create-user.ps1)
   * Objectif : Provisioning unitaire d'un utilisateur via Graph API.
   * Connexion requise : `Connect-MgGraph -Scopes "User.ReadWrite.All"` + `-ContextScope Process`
-* [Exo 1c : Création d'utilisateurs en masse](./01_User_Management/exo1c-bulk-create-users.ps1)
+* [Exo 1b : Création d'utilisateurs en masse](./01_User_Management/exo1b-bulk-create-users.ps1)
   * Objectif : Injection d'utilisateurs en masse via parsing du fichier [utilisateurs.csv](./01_User_Management/utilisateurs.csv).
   * Connexion requise : `Connect-MgGraph -Scopes "User.ReadWrite.All"` + `-ContextScope Process`
-* [Exo 1d : Attribution de licence unitaire](./01_User_Management/exo1d-single-licence-assignment.ps1)
+* [Exo 1c : Attribution de licence unitaire](./01_User_Management/exo1c-single-licence-assignment.ps1)
   * Objectif : Attribuer une licence M365 à un utilisateur — vérification du UsageLocation, contrôle des places disponibles, attribution via Graph API.
   * Connexion requise : `Connect-MgGraph -Scopes "User.ReadWrite.All", "Directory.ReadWrite.All"` + `-ContextScope Process`
   * Licence requise : selon la licence attribuée
-* [Exo 1e : Attribution de licence en masse](./01_User_Management/exo1e-bulk-licence-assignment.ps1)
+* [Exo 1d : Attribution de licence en masse](./01_User_Management/exo1d-bulk-licence-assignment.ps1)
   * Objectif : Attribuer la même licence à un ensemble d'utilisateurs depuis un CSV — détection des doublons, gestion des UsageLocation manquants.
   * Connexion requise : `Connect-MgGraph -Scopes "User.ReadWrite.All", "Directory.ReadWrite.All"` + `-ContextScope Process`
   * Licence requise : selon la licence attribuée
+
+#### Cycle de vie
+* [Exo 1e : Désactivation d'un compte](./01_User_Management/exo1e-disable-user.ps1)
+  * Objectif : Désactiver un compte utilisateur — première étape d'un offboarding, avant suppression définitive.
+  * Connexion requise : `Connect-MgGraph -Scopes "User.ReadWrite.All"` + `-ContextScope Process`
+* [Exo 1f : Réactivation d'un compte](./01_User_Management/exo1f-enable-user.ps1)
+  * Objectif : Réactiver un compte précédemment désactivé — pendant logique de l'exo 1e.
+  * Connexion requise : `Connect-MgGraph -Scopes "User.ReadWrite.All"` + `-ContextScope Process`
+* [Exo 1g : Modification d'attributs](./01_User_Management/exo1g-update-user.ps1)
+  * Objectif : Mettre à jour les attributs d'un utilisateur — département, job title, manager, usage location.
+  * Connexion requise : `Connect-MgGraph -Scopes "User.ReadWrite.All"` + `-ContextScope Process`
+* [Exo 1h : Suppression d'un compte](./01_User_Management/exo1h-delete-user.ps1)
+  * Objectif : Supprimer un compte utilisateur — suppression logique vers la corbeille Entra (récupérable 30 jours).
+  * Connexion requise : `Connect-MgGraph -Scopes "User.ReadWrite.All"` + `-ContextScope Process`
+* [Exo 1i : Retrait de licence](./01_User_Management/exo1i-remove-licence.ps1)
+  * Objectif : Retirer une ou plusieurs licences d'un utilisateur — pendant logique des exos 1c et 1d.
+  * Connexion requise : `Connect-MgGraph -Scopes "User.ReadWrite.All", "Directory.ReadWrite.All"` + `-ContextScope Process`
+
+#### Audit
+* [Exo 1j : Audit des identités](./01_User_Management/exo1j-audit-identities.ps1)
+  * Objectif : Inventorier tous les comptes du tenant — membres, invités, actifs, désactivés, avec export CSV.
+  * Connexion requise : `Connect-MgGraph -Scopes "User.Read.All"`
+* [Exo 1k : Audit des comptes invités](./01_User_Management/exo1k-audit-guests.ps1)
+  * Objectif : Contrôler les accès externes — état des invités, dernière connexion, jamais connectés, inactifs.
+  * Connexion requise : `Connect-MgGraph -Scopes "User.Read.All"`
+* [Exo 1l : Audit des comptes inactifs](./01_User_Management/exo1l-audit-inactive.ps1)
+  * Objectif : Détecter les comptes à nettoyer — inactifs depuis 30, 90, 180 jours ou jamais connectés.
+  * Connexion requise : `Connect-MgGraph -Scopes "User.Read.All", "AuditLog.Read.All"`
+* [Exo 1m : Audit des licences](./01_User_Management/exo1m-audit-licences.ps1)
+  * Objectif : Inventaire des licences du tenant — utilisateurs sans licence, avec plusieurs licences, filtre par SKU.
+  * Connexion requise : `Connect-MgGraph -Scopes "User.Read.All", "Directory.Read.All"`
 
 <details>
 <summary>Commandes utiles en une ligne — User Management</summary>
@@ -54,15 +83,24 @@ Get-MgUser -UserId "upn@domaine.onmicrosoft.com" | Select-Object Id, DisplayName
 # Désactiver un compte utilisateur
 Update-MgUser -UserId "id-utilisateur" -AccountEnabled $false
 
-# Supprimer un utilisateur
+# Réactiver un compte utilisateur
+Update-MgUser -UserId "id-utilisateur" -AccountEnabled $true
+
+# Modifier le département d'un utilisateur
+Update-MgUser -UserId "id-utilisateur" -Department "Nouveau département"
+
+# Modifier le manager d'un utilisateur
+$ManagerRef = @{ "@odata.id" = "https://graph.microsoft.com/v1.0/users/id-du-manager" }
+Set-MgUserManagerByRef -UserId "id-utilisateur" -BodyParameter $ManagerRef
+
+# Supprimer un utilisateur (suppression logique — récupérable 30 jours via la corbeille Entra)
 Remove-MgUser -UserId "id-utilisateur"
 
-# Lister tous les rôles personnalisés
-Get-MgRoleManagementDirectoryRoleDefinition -All |
-    Where-Object { $_.IsBuiltIn -eq $false } | Select-Object Id, DisplayName
+# Lister les utilisateurs supprimés (corbeille)
+Get-MgDirectoryDeletedItemAsUser -All | Select-Object Id, DisplayName, UserPrincipalName
 
-# Supprimer un rôle personnalisé (récupérer l'ID via Get-MgRoleManagementDirectoryRoleDefinition)
-Remove-MgRoleManagementDirectoryRoleDefinition -UnifiedRoleDefinitionId "id-du-role"
+# Restaurer un utilisateur supprimé depuis la corbeille
+Restore-MgDirectoryDeletedItem -DirectoryObjectId "id-utilisateur"
 
 # Lister les licences disponibles dans le tenant
 Get-MgSubscribedSku | Select-Object SkuPartNumber, ConsumedUnits, @{N="Total";E={$_.PrepaidUnits.Enabled}}
@@ -72,6 +110,15 @@ Get-MgUserLicenseDetail -UserId "upn@domaine.onmicrosoft.com" | Select-Object Sk
 
 # Retirer une licence à un utilisateur
 Set-MgUserLicense -UserId "id-utilisateur" -AddLicenses @() -RemoveLicenses @("sku-id")
+
+# Lister les utilisateurs sans licence
+Get-MgUser -All -Property Id, DisplayName, UserPrincipalName, AssignedLicenses |
+    Where-Object { $_.AssignedLicenses.Count -eq 0 } |
+    Select-Object DisplayName, UserPrincipalName
+
+# Lister les invités uniquement
+Get-MgUser -All -Filter "userType eq 'Guest'" |
+    Select-Object DisplayName, UserPrincipalName, CreatedDateTime
 
 # Déconnecter proprement la session Graph
 Disconnect-MgGraph
@@ -89,6 +136,9 @@ Disconnect-MgGraph
   * Objectif : Création d'une Administrative Unit dynamique via règle d'appartenance.
   * Connexion requise : `Connect-MgGraph -Scopes "AdministrativeUnit.ReadWrite.All"` + `-ContextScope Process`
   * Licence requise : Entra ID P1/P2
+* [Exo 2c : Audit des Administrative Units](./02_Administrative_Units/exo2c-audit-au.ps1)
+  * Objectif : Inventorier les AUs du tenant — membres, admins scopés, AUs vides, AUs sans admin délégué.
+  * Connexion requise : `Connect-MgGraph -Scopes "AdministrativeUnit.Read.All", "RoleManagement.Read.Directory"`
 
 <details>
 <summary>Commandes utiles en une ligne — Administrative Units</summary>
@@ -102,6 +152,16 @@ Get-MgDirectoryAdministrativeUnitMember -AdministrativeUnitId "id-de-lau" | Sele
 
 # Lister les admins scopés d'une AU
 Get-MgDirectoryAdministrativeUnitScopedRoleMember -AdministrativeUnitId "id-de-lau"
+
+# Filtrer les AUs sans membres
+Get-MgDirectoryAdministrativeUnit -All | Where-Object {
+    (Get-MgDirectoryAdministrativeUnitMember -AdministrativeUnitId $_.Id).Count -eq 0
+} | Select-Object DisplayName
+
+# Filtrer les AUs sans admin scopé
+Get-MgDirectoryAdministrativeUnit -All | Where-Object {
+    (Get-MgDirectoryAdministrativeUnitScopedRoleMember -AdministrativeUnitId $_.Id).Count -eq 0
+} | Select-Object DisplayName
 
 # Supprimer une AU
 Remove-MgDirectoryAdministrativeUnit -AdministrativeUnitId "id-de-lau"
@@ -126,6 +186,12 @@ Disconnect-MgGraph
   * Objectif : Création d'un groupe M365 avec mailbox partagée — utilisé comme cible de Label Policy dans Purview 2d.
   * Connexion requise : `Connect-MgGraph -Scopes "Group.ReadWrite.All"` + `-ContextScope Process`
   * Note : `-BodyParameter` obligatoire sur `New-MgGroup` — les paramètres directs `-MailEnabled` et `-SecurityEnabled` lèvent une erreur de type sur les versions récentes du module Graph.
+* [Exo 3d : Audit des groupes](./03_Group_Management/exo3d-audit-groups.ps1)
+  * Objectif : Inventorier les groupes du tenant — Security Groups, M365 Groups, groupes dynamiques, avec export CSV.
+  * Connexion requise : `Connect-MgGraph -Scopes "Group.Read.All"`
+* [Exo 3e : Audit des groupes sans propriétaire](./03_Group_Management/exo3e-audit-groups-no-owner.ps1)
+  * Objectif : Identifier les groupes mal gouvernés — sans owner, avec plusieurs owners, sans membres.
+  * Connexion requise : `Connect-MgGraph -Scopes "Group.Read.All"`
 
 <details>
 <summary>Commandes utiles en une ligne — Group Management</summary>
@@ -141,6 +207,10 @@ Get-MgGroup -All | Where-Object { $_.GroupTypes -contains "Unified" } | Select-O
 Get-MgGroup -All | Where-Object { $_.SecurityEnabled -eq $true -and $_.GroupTypes -notcontains "Unified" } |
     Select-Object Id, DisplayName
 
+# Filtrer les groupes dynamiques uniquement
+Get-MgGroup -All | Where-Object { $_.GroupTypes -contains "DynamicMembership" } |
+    Select-Object Id, DisplayName, MembershipRule
+
 # Lister les membres d'un groupe (récupérer l'ID via Get-MgGroup)
 Get-MgGroupMember -GroupId "id-du-groupe" | Select-Object Id
 
@@ -150,6 +220,16 @@ Get-MgGroupMember -GroupId "id-du-groupe" |
 
 # Lister les owners d'un groupe
 Get-MgGroupOwner -GroupId "id-du-groupe" | Select-Object Id
+
+# Identifier les groupes sans owner
+Get-MgGroup -All | Where-Object {
+    (Get-MgGroupOwner -GroupId $_.Id).Count -eq 0
+} | Select-Object DisplayName, Id
+
+# Identifier les groupes sans membres
+Get-MgGroup -All | Where-Object {
+    (Get-MgGroupMember -GroupId $_.Id).Count -eq 0
+} | Select-Object DisplayName, Id
 
 # Supprimer un groupe
 Remove-MgGroup -GroupId "id-du-groupe"
@@ -191,8 +271,21 @@ Disconnect-MgGraph
 # Lister tous les Catalogs
 Get-MgEntitlementManagementCatalog -All | Select-Object Id, DisplayName, State
 
+# Filtrer les Catalogs publiés uniquement
+Get-MgEntitlementManagementCatalog -All |
+    Where-Object { $_.State -eq "published" } | Select-Object Id, DisplayName
+
 # Lister tous les Access Packages
 Get-MgEntitlementManagementAccessPackage -All | Select-Object Id, DisplayName, Description, CatalogId
+
+# Filtrer les Access Packages non masqués (visibles dans My Access)
+Get-MgEntitlementManagementAccessPackage -All |
+    Where-Object { $_.IsHidden -eq $false } | Select-Object Id, DisplayName
+
+# Filtrer les Access Packages sans assignation active (packages potentiellement inutilisés)
+Get-MgEntitlementManagementAccessPackage -All | Where-Object {
+    (Get-MgEntitlementManagementAssignment -Filter "accessPackageId eq '$($_.Id)' and state eq 'delivered'" -All).Count -eq 0
+} | Select-Object DisplayName, Id
 
 # Lister les assignations actives
 Get-MgEntitlementManagementAssignment -Filter "state eq 'delivered'" -All | Select-Object Id, State
@@ -261,6 +354,19 @@ Get-MgIdentityConditionalAccessPolicy -All |
 Get-MgIdentityConditionalAccessPolicy -All |
     Where-Object { $_.State -eq "disabled" } | Select-Object Id, DisplayName
 
+# Afficher les grant controls d'une politique (MFA, blocage, poste conforme...)
+Get-MgIdentityConditionalAccessPolicy -ConditionalAccessPolicyId "id-de-la-politique" |
+    Select-Object -ExpandProperty GrantControls
+
+# Afficher les conditions d'une politique (users, apps, plateformes ciblés)
+Get-MgIdentityConditionalAccessPolicy -ConditionalAccessPolicyId "id-de-la-politique" |
+    Select-Object -ExpandProperty Conditions
+
+# Filtrer les politiques créées récemment (30 derniers jours)
+$Seuil = (Get-Date).AddDays(-30)
+Get-MgIdentityConditionalAccessPolicy -All |
+    Where-Object { $_.CreatedDateTime -gt $Seuil } | Select-Object DisplayName, CreatedDateTime
+
 # Supprimer une politique CA (récupérer l'ID via Get-MgIdentityConditionalAccessPolicy)
 Remove-MgIdentityConditionalAccessPolicy -ConditionalAccessPolicyId "id-de-la-politique"
 
@@ -316,6 +422,20 @@ Get-MgRoleManagementDirectoryRoleAssignmentSchedule -All |
     Where-Object { $_.ScheduleInfo.Expiration.Type -eq "noExpiration" } |
     Select-Object Id, PrincipalId, RoleDefinitionId
 
+# Filtrer les assignations permanentes de type "Assigned" (hors PIM — à convertir en éligibles)
+Get-MgRoleManagementDirectoryRoleAssignmentSchedule -All |
+    Where-Object {
+        $_.ScheduleInfo.Expiration.Type -eq "noExpiration" -and
+        $_.AssignmentType -eq "Assigned"
+    } | Select-Object Id, PrincipalId, RoleDefinitionId
+
+# Filtrer les assignations éligibles proches de l'expiration (30 prochains jours)
+$Seuil = (Get-Date).AddDays(30)
+Get-MgRoleManagementDirectoryRoleEligibilitySchedule -All |
+    Where-Object { $_.ScheduleInfo.Expiration.EndDateTime -lt $Seuil -and
+                   $_.ScheduleInfo.Expiration.EndDateTime -ne $null } |
+    Select-Object Id, PrincipalId, RoleDefinitionId
+
 # Lister les demandes d'activation en cours
 Get-MgRoleManagementDirectoryRoleAssignmentScheduleRequest -All |
     Select-Object Id, Action, Status, PrincipalId
@@ -357,6 +477,10 @@ Disconnect-MgGraph
 # Lister toutes les campagnes de révision
 Get-MgIdentityGovernanceAccessReviewDefinition -All | Select-Object Id, DisplayName, Status
 
+# Filtrer les campagnes actives uniquement
+Get-MgIdentityGovernanceAccessReviewDefinition -All |
+    Where-Object { $_.Status -eq "inProgress" } | Select-Object Id, DisplayName
+
 # Lister les instances en cours d'une campagne
 Get-MgIdentityGovernanceAccessReviewDefinitionInstance `
     -AccessReviewScheduleDefinitionId "id-de-la-campagne" -All |
@@ -368,8 +492,225 @@ Get-MgIdentityGovernanceAccessReviewDefinitionInstanceDecision `
     -AccessReviewInstanceId "id-instance" -All |
     Select-Object Decision, Principal
 
+# Filtrer les décisions "Deny" uniquement
+Get-MgIdentityGovernanceAccessReviewDefinitionInstanceDecision `
+    -AccessReviewScheduleDefinitionId "id-campagne" `
+    -AccessReviewInstanceId "id-instance" -All |
+    Where-Object { $_.Decision -eq "Deny" } | Select-Object Decision, Principal
+
 # Supprimer une campagne
 Remove-MgIdentityGovernanceAccessReviewDefinition -AccessReviewScheduleDefinitionId "id-de-la-campagne"
+
+# Déconnecter proprement la session Graph
+Disconnect-MgGraph
+```
+
+</details>
+
+---
+
+### 08_RBAC
+* [Exo 8a : Création d'un rôle personnalisé](./08_RBAC/exo8a-custom-role.ps1)
+  * Objectif : Déploiement d'un rôle RBAC granulaire pour la création d'applications — démonstration du least privilege via rôle custom vs rôle built-in trop large.
+  * Connexion requise : `Connect-MgGraph -Scopes "RoleManagement.ReadWrite.Directory"` + `-ContextScope Process`
+  * Licence requise : Entra ID P1/P2
+  * Note : script déplacé depuis `01_User_Management/exo1a` — même contenu, reclassé dans son chapitre naturel.
+* [Exo 8b : Assignation d'un rôle built-in](./08_RBAC/exo8b-assign-builtin-role.ps1)
+  * Objectif : Assigner un rôle Entra built-in à un utilisateur — opération la plus fréquente en mission IAM, avec vérification de l'assignation existante avant création.
+  * Connexion requise : `Connect-MgGraph -Scopes "RoleManagement.ReadWrite.Directory"` + `-ContextScope Process`
+* [Exo 8c : Désassignation d'un rôle](./08_RBAC/exo8c-remove-role-assignment.ps1)
+  * Objectif : Retirer un rôle Entra à un utilisateur — pendant logique de l'exo 8b, cycle de vie complet d'une assignation.
+  * Connexion requise : `Connect-MgGraph -Scopes "RoleManagement.ReadWrite.Directory"` + `-ContextScope Process`
+* [Exo 8d : Membres d'un rôle](./08_RBAC/exo8d-list-role-members.ps1)
+  * Objectif : Lister tous les détenteurs d'un rôle donné — opération de contrôle immédiate après assignation ou désassignation.
+  * Connexion requise : `Connect-MgGraph -Scopes "RoleManagement.Read.Directory"`
+* [Exo 8e : Assignation scopée à une Administrative Unit](./08_RBAC/exo8e-scoped-role-assignment-au.ps1)
+  * Objectif : Assigner un rôle Entra limité au périmètre d'une AU — délégation granulaire sans droits tenant-wide, lien naturel avec le chapitre 02_Administrative_Units.
+  * Connexion requise : `Connect-MgGraph -Scopes "RoleManagement.ReadWrite.Directory", "AdministrativeUnit.Read.All"` + `-ContextScope Process`
+* [Exo 8f : Audit des rôles administratifs](./08_RBAC/exo8f-audit-admin-roles.ps1)
+  * Objectif : Inventorier tous les détenteurs de rôles Entra — rôles built-in vs custom, Global Admins, Security Admins, rôles sensibles, avec export CSV.
+  * Connexion requise : `Connect-MgGraph -Scopes "RoleManagement.Read.Directory", "User.Read.All"`
+
+<details>
+<summary>Note technique — RBAC Entra vs rôles Azure RBAC</summary>
+
+> Les rôles couverts dans ce chapitre sont les **rôles Entra ID** (anciennement Azure AD roles) —
+> ils gouvernent les actions d'administration sur le tenant Entra (créer des users, gérer des apps,
+> configurer le CA, etc.). Ils sont distincts des **rôles Azure RBAC** qui gouvernent les ressources
+> Azure (VM, Storage, Key Vault...) et dont la surface PowerShell passe par le module `Az`.
+>
+> Deux familles de cmdlets coexistent selon le contexte :
+> - `Get-MgRoleManagementDirectoryRoleDefinition` → rôles Entra ID (ce chapitre)
+> - `Get-AzRoleDefinition` → rôles Azure RBAC (hors périmètre SC-300)
+>
+> En production, les deux systèmes se complètent : un Global Admin Entra n'est pas
+> automatiquement Owner sur les subscriptions Azure — les deux périmètres sont séparés
+> et doivent être audités indépendamment.
+
+</details>
+
+<details>
+<summary>Note technique — WAM et -ContextScope Process</summary>
+
+> Les opérations d'écriture RBAC nécessitent le scope `RoleManagement.ReadWrite.Directory`,
+> bloqué par WAM sur l'app générique Microsoft Graph Command Line Tools.
+> `-ContextScope Process` est requis pour bypasser le cache WAM.
+> Voir note identique dans le chapitre 05_Conditional_Access — même mécanisme, même solution.
+
+</details>
+
+<details>
+<summary>Commandes utiles en une ligne — RBAC</summary>
+
+```powershell
+# Lister tous les rôles Entra disponibles (built-in + custom)
+Get-MgRoleManagementDirectoryRoleDefinition -All | Select-Object Id, DisplayName, IsBuiltIn
+
+# Lister uniquement les rôles custom (créés par l'admin)
+Get-MgRoleManagementDirectoryRoleDefinition -All |
+    Where-Object { $_.IsBuiltIn -eq $false } | Select-Object Id, DisplayName
+
+# Rechercher un rôle built-in par nom
+Get-MgRoleManagementDirectoryRoleDefinition -All |
+    Where-Object { $_.DisplayName -eq "Helpdesk Administrator" } | Select-Object Id, DisplayName
+
+# Lister les assignations actives d'un rôle donné (récupérer l'ID du rôle au préalable)
+Get-MgRoleManagementDirectoryRoleAssignment -All |
+    Where-Object { $_.RoleDefinitionId -eq "id-du-role" } |
+    Select-Object PrincipalId, RoleDefinitionId, DirectoryScopeId
+
+# Lister toutes les assignations de rôles du tenant avec résolution des noms
+Get-MgRoleManagementDirectoryRoleAssignment -All | ForEach-Object {
+    $User = Get-MgUser -UserId $_.PrincipalId -ErrorAction SilentlyContinue
+    $Role = Get-MgRoleManagementDirectoryRoleDefinition -UnifiedRoleDefinitionId $_.RoleDefinitionId
+    [PSCustomObject]@{
+        Utilisateur = if ($User) { $User.DisplayName } else { $_.PrincipalId }
+        Role        = $Role.DisplayName
+        Perimetre   = $_.DirectoryScopeId
+    }
+}
+
+# Lister les membres d'une AU avec leur rôle scopé
+Get-MgDirectoryAdministrativeUnitScopedRoleMember -AdministrativeUnitId "id-de-lau"
+
+# Supprimer un rôle personnalisé
+Remove-MgRoleManagementDirectoryRoleDefinition -UnifiedRoleDefinitionId "id-du-role"
+
+# Supprimer une assignation de rôle
+Remove-MgRoleManagementDirectoryRoleAssignment -UnifiedRoleAssignmentId "id-de-lassignation"
+
+# Déconnecter proprement la session Graph
+Disconnect-MgGraph
+```
+
+</details>
+
+---
+
+### 09_Audit_Transverse
+* [Exo 9a : Audit MFA](./09_Audit_Transverse/exo9a-audit-mfa.ps1)
+  * Objectif : Contrôler la posture MFA du tenant — utilisateurs sans MFA, méthodes enregistrées (Authenticator, SMS, FIDO2), export CSV.
+  * Connexion requise : `Connect-MgGraph -Scopes "UserAuthenticationMethod.Read.All", "User.Read.All"`
+  * Licence requise : Entra ID P1/P2
+* [Exo 9b : Audit des Enterprise Applications](./09_Audit_Transverse/exo9b-audit-enterprise-apps.ps1)
+  * Objectif : Inventorier les applications du tenant — applications Microsoft vs tierces, récemment créées, avec export CSV.
+  * Connexion requise : `Connect-MgGraph -Scopes "Application.Read.All"`
+* [Exo 9c : Audit des applications sans propriétaire](./09_Audit_Transverse/exo9c-audit-apps-no-owner.ps1)
+  * Objectif : Identifier les applications mal gouvernées — sans owner, avec plusieurs owners, sans activité récente.
+  * Connexion requise : `Connect-MgGraph -Scopes "Application.Read.All"`
+* [Exo 9d : Tenant Security Snapshot](./09_Audit_Transverse/exo9d-tenant-snapshot.ps1)
+  * Objectif : Mini audit IAM global — génère en une passe l'ensemble des CSV d'audit (identités, invités, groupes, licences, rôles admin, MFA, Enterprise Apps, CA) et un fichier Summary.txt avec les chiffres clés du tenant.
+  * Connexion requise : `Connect-MgGraph -Scopes "User.Read.All", "Group.Read.All", "Directory.Read.All", "Policy.Read.All", "RoleManagement.Read.Directory", "UserAuthenticationMethod.Read.All", "Application.Read.All", "AuditLog.Read.All"`
+
+<details>
+<summary>Note technique — UserAuthenticationMethod et droits admin requis</summary>
+
+> `UserAuthenticationMethod.Read.All` est un scope sensible — il expose les méthodes
+> d'authentification enregistrées de tous les utilisateurs du tenant (numéros de téléphone,
+> devices FIDO2, tokens OATH...). Ce scope nécessite un rôle **Authentication Administrator**
+> ou **Global Admin** sur le compte connecté — un compte standard avec consentement délégué
+> ne suffit pas.
+>
+> Sur un tenant de dev E5, le compte Global Admin dispose de ce droit sans configuration
+> supplémentaire. En production, ce scope doit être consenti explicitement par un admin
+> dans le portail Entra (Entra Admin Center > App registrations > API permissions).
+>
+> Note : `Get-MgUserAuthenticationMethod` retourne les méthodes enregistrées par utilisateur.
+> Pour savoir si un utilisateur a le MFA activé, on vérifie si au moins une méthode autre que
+> `#microsoft.graph.passwordAuthenticationMethod` est présente dans la liste retournée.
+
+</details>
+
+<details>
+<summary>Note technique — périmètre du Tenant Security Snapshot (9d)</summary>
+
+> Le Snapshot agrège les données de plusieurs chapitres en une seule passe.
+> Il ne remplace pas les scripts d'audit détaillés — il donne une vue chiffrée rapide
+> exploitable en 30 secondes, utile en début de mission ou en reporting hebdomadaire.
+>
+> Les CSV générés sont intentionnellement moins détaillés que leurs équivalents chapitres
+> (pas de résolution de tous les GUIDs, pas de variantes) — l'objectif est la rapidité
+> d'exécution, pas l'exhaustivité. Pour approfondir un point, se référer au script
+> d'audit dédié dans le chapitre correspondant.
+>
+> Structure générée :
+> ```
+> Reports\
+> ├── Identity-Audit.csv
+> ├── Guest-Audit.csv
+> ├── Groups-Audit.csv
+> ├── Licences-Audit.csv
+> ├── AdminRoles-Audit.csv
+> ├── MFA-Audit.csv
+> ├── EnterpriseApps-Audit.csv
+> ├── ConditionalAccess-Audit.csv
+> └── Summary.txt
+> ```
+
+</details>
+
+<details>
+<summary>Commandes utiles en une ligne — Audit Transverse</summary>
+
+```powershell
+# Lister les méthodes MFA enregistrées d'un utilisateur
+Get-MgUserAuthenticationMethod -UserId "upn@domaine.onmicrosoft.com" |
+    Select-Object Id, AdditionalProperties
+
+# Identifier les utilisateurs sans aucune méthode MFA enregistrée
+Get-MgUser -All | ForEach-Object {
+    $Methods = Get-MgUserAuthenticationMethod -UserId $_.Id
+    if ($Methods.Count -le 1) {  # 1 = mot de passe uniquement
+        [PSCustomObject]@{ DisplayName = $_.DisplayName; UPN = $_.UserPrincipalName }
+    }
+}
+
+# Lister toutes les Enterprise Applications (Service Principals)
+Get-MgServicePrincipal -All | Select-Object Id, DisplayName, AppId, CreatedDateTime
+
+# Filtrer les applications tierces (non Microsoft)
+Get-MgServicePrincipal -All |
+    Where-Object { $_.AppOwnerOrganizationId -ne "f8cdef31-a31e-4b4a-93e4-5f571e91255a" } |
+    Select-Object DisplayName, AppId, CreatedDateTime
+
+# Filtrer les applications Microsoft uniquement
+Get-MgServicePrincipal -All |
+    Where-Object { $_.AppOwnerOrganizationId -eq "f8cdef31-a31e-4b4a-93e4-5f571e91255a" } |
+    Select-Object DisplayName, AppId
+
+# Lister les owners d'une application
+Get-MgServicePrincipalOwner -ServicePrincipalId "id-de-lapp" | Select-Object Id
+
+# Identifier les applications sans owner
+Get-MgServicePrincipal -All | Where-Object {
+    (Get-MgServicePrincipalOwner -ServicePrincipalId $_.Id).Count -eq 0
+} | Select-Object DisplayName, AppId, CreatedDateTime
+
+# Filtrer les applications créées récemment (30 derniers jours)
+$Seuil = (Get-Date).AddDays(-30)
+Get-MgServicePrincipal -All |
+    Where-Object { $_.CreatedDateTime -gt $Seuil } |
+    Select-Object DisplayName, AppId, CreatedDateTime
 
 # Déconnecter proprement la session Graph
 Disconnect-MgGraph
