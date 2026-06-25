@@ -144,10 +144,95 @@ Write-Host "`n=== RÉSUMÉ ===" -ForegroundColor Magenta
 Write-Host "=== FIN DE L'AUDIT ===" -ForegroundColor Green
 
 # ========================================================================================
+# EXPORT CSV
+# ========================================================================================
+Write-Host "Export CSV en cours..." -ForegroundColor Cyan
+
+# EN LABO / Local :
+$ExportPath = "D:\Documents\ScriptsPowerShell\Exports\"
+# EN PRODUCTION :
+# $ExportPath = "$PSScriptRoot\Exports\"
+
+New-Item -ItemType Directory -Force -Path $ExportPath | Out-Null
+$Timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+
+# --- CSV 1 : Catalogs ---
+# Colonnes exportées : Id, DisplayName, State, IsExternallyVisible
+# Colonnes disponibles non exportées :
+#   Description          : description du catalog
+#   CreatedDateTime      : date de création
+#   ModifiedDateTime     : date de dernière modification
+$CatalogExport = Get-MgEntitlementManagementCatalog -All |
+    Select-Object Id, DisplayName, State, IsExternallyVisible
+
+$CatalogExport | Export-Csv `
+    -Path "$ExportPath\EM_Catalogs_$Timestamp.csv" `
+    -Encoding UTF8 -NoTypeInformation
+Write-Host "-> Catalogs : $($CatalogExport.Count) ligne(s) — EM_Catalogs_$Timestamp.csv" -ForegroundColor Green
+
+# --- CSV 2 : Access Packages ---
+# Colonnes exportées : Id, DisplayName, Description, CatalogId, IsHidden
+# Colonnes disponibles non exportées :
+#   CreatedDateTime      : date de création du package
+#   ModifiedDateTime     : date de dernière modification
+#   IsRoleScopesVisible  : visibilité des rôles dans le portail My Access
+$PackageExport = Get-MgEntitlementManagementAccessPackage -All |
+    Select-Object Id, DisplayName, Description, CatalogId, IsHidden
+
+$PackageExport | Export-Csv `
+    -Path "$ExportPath\EM_AccessPackages_$Timestamp.csv" `
+    -Encoding UTF8 -NoTypeInformation
+Write-Host "-> Access Packages : $($PackageExport.Count) ligne(s) — EM_AccessPackages_$Timestamp.csv" -ForegroundColor Green
+
+# --- CSV 3 : Assignations actives ---
+# Colonnes exportées : Id, State, AccessPackageId, TargetId, AssignmentPolicyId
+# Colonnes disponibles non exportées :
+#   ExpiredDateTime      : date d'expiration de l'assignation (null = permanente)
+#   Schedule             : détail de la planification si time-bound
+#
+# Note : TargetId = ObjectId Entra de l'utilisateur assigné.
+# Pour résoudre en DisplayName : Get-MgUser -UserId $_.TargetId (coûteux en volume)
+if ($ActiveAssignments) {
+    $ActiveAssignments | Select-Object Id, State, AccessPackageId, TargetId, AssignmentPolicyId |
+        Export-Csv `
+            -Path "$ExportPath\EM_AssignationsActives_$Timestamp.csv" `
+            -Encoding UTF8 -NoTypeInformation
+    Write-Host "-> Assignations actives : $($ActiveAssignments.Count) ligne(s) — EM_AssignationsActives_$Timestamp.csv" -ForegroundColor Green
+} else {
+    Write-Host "-> Assignations actives : aucune donnée à exporter." -ForegroundColor Yellow
+}
+
+# --- CSV 4 : Demandes en attente ---
+# Colonnes exportées : Id, RequestType, State, RequestorId, AccessPackageId
+# Colonnes disponibles non exportées :
+#   CreatedDateTime      : date de soumission de la demande
+#   CompletedDateTime    : date de traitement (null si encore en attente)
+#   Justification        : texte saisi par le demandeur — utile pour audit de conformité
+#   Answers              : réponses aux questions du workflow d'approbation
+#
+# Note : RequestorId = ObjectId Entra du demandeur.
+# Pour résoudre en DisplayName : Get-MgUser -UserId $_.Requestor.ObjectId
+if ($PendingRequests) {
+    $PendingRequests | Select-Object Id, RequestType, State,
+        @{N="RequestorId"; E={ $_.Requestor.ObjectId }},
+        @{N="AccessPackageId"; E={ $_.AccessPackage.Id }} |
+        Export-Csv `
+            -Path "$ExportPath\EM_DemandesEnAttente_$Timestamp.csv" `
+            -Encoding UTF8 -NoTypeInformation
+    Write-Host "-> Demandes en attente : $($PendingRequests.Count) ligne(s) — EM_DemandesEnAttente_$Timestamp.csv" -ForegroundColor Green
+} else {
+    Write-Host "-> Demandes en attente : aucune donnée à exporter." -ForegroundColor Yellow
+}
+
+Write-Host "-> Export terminé dans : $ExportPath`n" -ForegroundColor Green
+
+
+# ========================================================================================
 # NETTOYAGE MÉMOIRE
 # ========================================================================================
-Remove-Variable Scopes, ActiveAssignments, PendingRequests `
-    -ErrorAction SilentlyContinue
+Remove-Variable Scopes, ActiveAssignments, PendingRequests,
+                ExportPath, Timestamp, CatalogExport, PackageExport `
+                -ErrorAction SilentlyContinue
 
 # ========================================================================================
 # FERMETURE — RESET DE SESSION TOTAL
