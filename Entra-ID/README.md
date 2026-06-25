@@ -514,6 +514,7 @@ Disconnect-MgGraph
   * Objectif : Déploiement d'un rôle RBAC granulaire pour la création d'applications — démonstration du least privilege via rôle custom vs rôle built-in trop large.
   * Connexion requise : `Connect-MgGraph -Scopes "RoleManagement.ReadWrite.Directory"` + `-ContextScope Process`
   * Licence requise : Entra ID P1/P2
+  * Note : script déplacé depuis `01_User_Management/exo1a` — même contenu, reclassé dans son chapitre naturel.
 * [Exo 8b : Assignation d'un rôle built-in](./08_RBAC/exo8b-assign-builtin-role.ps1)
   * Objectif : Assigner un rôle Entra built-in à un utilisateur — opération la plus fréquente en mission IAM, avec vérification de l'assignation existante avant création.
   * Connexion requise : `Connect-MgGraph -Scopes "RoleManagement.ReadWrite.Directory"` + `-ContextScope Process`
@@ -643,14 +644,20 @@ Disconnect-MgGraph
 <details>
 <summary>Note technique — périmètre du Tenant Security Snapshot (9d)</summary>
 
-> Le Snapshot agrège les données de plusieurs chapitres en une seule passe.
-> Il ne remplace pas les scripts d'audit détaillés — il donne une vue chiffrée rapide
-> exploitable en 30 secondes, utile en début de mission ou en reporting hebdomadaire.
+> Le Snapshot agrège les données de tous les chapitres en une seule passe — identités,
+> invités, groupes, licences, rôles admin, MFA, Enterprise Apps, Conditional Access.
+> Chaque section est aussi détaillée que son équivalent dans son chapitre dédié :
+> résolution complète des GUIDs en noms lisibles, colonnes enrichies, variantes commentées.
 >
-> Les CSV générés sont intentionnellement moins détaillés que leurs équivalents chapitres
-> (pas de résolution de tous les GUIDs, pas de variantes) — l'objectif est la rapidité
-> d'exécution, pas l'exhaustivité. Pour approfondir un point, se référer au script
-> d'audit dédié dans le chapitre correspondant.
+> Cas d'usage : arriver en mission et avoir une vue exhaustive du tenant en une exécution,
+> avec l'ensemble des CSV exportés et un Summary.txt chiffré prêt à transmettre au RSSI.
+>
+> La seule différence avec les scripts chapitres : tout est dans un seul fichier, dans
+> une seule connexion Graph avec l'ensemble des scopes requis cumulés. Sur un tenant de
+> dev E5, le temps d'exécution reste acceptable. Sur un tenant de production avec des
+> dizaines de milliers d'objets, la résolution des GUIDs en boucle peut être lente —
+> dans ce contexte, préférer les scripts dédiés par chapitre pour cibler uniquement
+> le périmètre nécessaire.
 >
 > Structure générée :
 > ```
