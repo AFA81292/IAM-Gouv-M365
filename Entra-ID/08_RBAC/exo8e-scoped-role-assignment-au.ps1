@@ -90,7 +90,7 @@ Connect-MgGraph -Scopes $Scopes -ContextScope Process -NoWelcome
 Write-Host "1. Définition des variables..." -ForegroundColor Cyan
 
 # Rôle à assigner — doit être scopable à une AU (voir liste en en-tête).
-$RoleName = "Helpdesk Administrator"
+$RoleName = "Password Administrator"
 
 # Utilisateur à qui on délègue le rôle.
 $TargetUPN = "geralt@0n4mg.onmicrosoft.com"
@@ -98,7 +98,7 @@ $TargetUPN = "geralt@0n4mg.onmicrosoft.com"
 # Nom de l'AU cible — résolu en ID à l'étape 4.
 # L'AU doit exister avant l'exécution de ce script (statique ou dynamique — indifférent).
 # Pour créer une AU → exo 2a (statique) ou exo 2b (dynamique).
-$AUName = "AU-MagicOps"
+$AUName = "Kaer-Morhen-Staff"
 
 # ---- MODE D'ASSIGNATION ----
 # Décommenter le mode voulu — un seul actif à la fois.
