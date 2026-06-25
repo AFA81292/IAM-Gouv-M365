@@ -1,5 +1,5 @@
 # ========================================================================================
-# Exercice 1e : Entra ID — Attribution de licences en masse depuis CSV
+# Exercice 1d : Entra ID — Attribution de licences en masse depuis CSV
 # ========================================================================================
 # Concept : Attribuer la même licence à un ensemble d'utilisateurs via un fichier CSV.
 # Cas d'usage réel : onboarding d'une équipe complète — les comptes sont créés (exo 2bis),
