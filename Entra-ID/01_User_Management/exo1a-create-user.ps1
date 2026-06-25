@@ -1,5 +1,5 @@
 # ========================================================================================
-# Exercice 1b : Entra ID — Création unitaire d'un utilisateur via Graph API
+# Exercice 1a : Entra ID — Création unitaire d'un utilisateur via Graph API
 # ========================================================================================
 # Concept : Provisioning d'un utilisateur unique via Microsoft Graph (SDK PowerShell).
 # Pas de CSV, pas de boucle — un seul compte, créé manuellement avec splatting.
