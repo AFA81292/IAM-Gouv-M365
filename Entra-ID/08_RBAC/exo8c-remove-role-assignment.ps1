@@ -268,7 +268,7 @@ Write-Host "6. Vérification post-suppression..." -ForegroundColor Cyan
 
 # REX : la propagation Graph post-suppression n'est pas instantanée.
 # On attend 15 secondes avant de relire — même logique que l'exo 8b post-création.
-Start-Sleep -Seconds 15
+Start-Sleep -Seconds 30
 
 $CheckGone = $null
 
