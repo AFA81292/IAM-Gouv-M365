@@ -1,5 +1,5 @@
 # ========================================================================================
-# Exercice 1d : Entra ID — Attribution de licence unitaire via Graph API
+# Exercice 1c : Entra ID — Attribution de licence unitaire via Graph API
 # ========================================================================================
 # Concept : Attribuer une licence Microsoft 365 à un utilisateur existant.
 # En production, un compte créé sans licence n'a accès à aucun service M365.
