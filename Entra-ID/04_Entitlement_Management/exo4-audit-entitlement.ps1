@@ -11,10 +11,12 @@
 #   3. Audite les Access Packages (ensembles de droits)
 #   4. Audite les assignations actives (droits effectivement délivrés)
 #   5. Audite les demandes en attente d'approbation
-#   6. Ferme proprement toutes les sessions
+#   6. Exporte les quatre jeux de données en CSV horodatés
+#   7. Ferme proprement toutes les sessions
 #
 # Cas d'usage réel : un consultant IAM arrive en mission et veut un état des lieux
-# complet des accès gouvernés en moins d'une minute — sans toucher à aucun objet.
+# complet des accès gouvernés en moins d'une minute — sans toucher à aucun objet,
+# avec un export CSV exploitable immédiatement dans Excel.
 #
 # DÉCOUVERTE TECHNIQUE : les opérations d'écriture (création, suppression d'Access
 # Packages, de Catalogs, de policies EM) retournent systématiquement 403 sur les
@@ -26,6 +28,12 @@
 #   Access Package → ensemble de droits demandables (groupes, rôles, apps, SPO)
 #   Assignment     → droits effectivement délivrés à un utilisateur
 #   Request        → demande soumise par un utilisateur (approuvée, en attente, refusée)
+#
+# Fichiers CSV générés :
+#   EM_Catalogs_YYYYMMDD_HHmmss.csv
+#   EM_AccessPackages_YYYYMMDD_HHmmss.csv
+#   EM_AssignationsActives_YYYYMMDD_HHmmss.csv
+#   EM_DemandesEnAttente_YYYYMMDD_HHmmss.csv
 #
 # Module requis : Microsoft.Graph.Identity.Governance
 # Connexion     : Connect-MgGraph
@@ -58,8 +66,9 @@ Write-Host "`n=== CATALOGS ===" -ForegroundColor Cyan
 # IsExternallyVisible :
 #   $true  = le Catalog est visible pour les utilisateurs invités (B2B)
 #   $false = réservé aux utilisateurs internes du tenant
-Get-MgEntitlementManagementCatalog -All |
-    Select-Object Id, DisplayName, State, IsExternallyVisible |
+$Catalogs = Get-MgEntitlementManagementCatalog -All
+
+$Catalogs | Select-Object Id, DisplayName, State, IsExternallyVisible |
     Format-Table -AutoSize
 
 # ========================================================================================
@@ -77,8 +86,9 @@ Write-Host "`n=== ACCESS PACKAGES ===" -ForegroundColor Cyan
 #   $true  = masqué — accessible uniquement via lien direct ou assignation administrative
 #
 # CatalogId : référence le Catalog parent — utile pour filtrer par département.
-Get-MgEntitlementManagementAccessPackage -All |
-    Select-Object Id, DisplayName, Description, CatalogId, IsHidden |
+$AccessPackages = Get-MgEntitlementManagementAccessPackage -All
+
+$AccessPackages | Select-Object Id, DisplayName, Description, CatalogId, IsHidden |
     Format-Table -AutoSize
 
 # ========================================================================================
@@ -93,13 +103,12 @@ Write-Host "`n=== ASSIGNATIONS ACTIVES ===" -ForegroundColor Cyan
 #   submitted → pendingApproval → approved → delivering → delivered → expired/removed
 #
 # Cas d'usage audit : qui a accès à quoi à un instant T ?
-# En production, on enrichirait cet export avec AccessPackageId et TargetId
-# pour identifier l'utilisateur et le package concernés.
 $ActiveAssignments = Get-MgEntitlementManagementAssignment `
     -Filter "state eq 'delivered'" -All
 
 if ($ActiveAssignments) {
-    $ActiveAssignments | Select-Object Id, State | Format-Table -AutoSize
+    $ActiveAssignments | Select-Object Id, State, AccessPackageId, TargetId |
+        Format-Table -AutoSize
 } else {
     Write-Host "-> Aucune assignation active détectée." -ForegroundColor Yellow
 }
@@ -111,9 +120,6 @@ Write-Host "`n=== DEMANDES EN ATTENTE ===" -ForegroundColor Cyan
 
 # State "pendingApproval" = demandes soumises par des utilisateurs,
 # en attente de validation par un approbateur désigné dans la policy de l'Access Package.
-#
-# Cas d'usage : un manager ou un admin IAM veut voir les demandes en attente
-# de sa validation sans passer par le portail My Access.
 #
 # RequestType :
 #   "UserAdd"    = demande d'accès initiale
@@ -133,12 +139,12 @@ if ($PendingRequests) {
 # ========================================================================================
 Write-Host "`n=== RÉSUMÉ ===" -ForegroundColor Magenta
 [PSCustomObject]@{
-    Scope              = "EntitlementManagement.Read.All"
-    CatalogsAuditEs    = "Oui"
-    AccessPackagesAud  = "Oui"
-    AssignationsActives = if ($ActiveAssignments) { $ActiveAssignments.Count } else { 0 }
-    DemandesEnAttente  = if ($PendingRequests)    { $PendingRequests.Count    } else { 0 }
-    LimitesTenant      = "Écriture EM bloquée sur tenant Developer (403 — backend IGA hors périmètre)"
+    Scope               = "EntitlementManagement.Read.All"
+    CatalogsAudités     = if ($Catalogs)           { $Catalogs.Count           } else { 0 }
+    AccessPackagesAudités = if ($AccessPackages)   { $AccessPackages.Count     } else { 0 }
+    AssignationsActives = if ($ActiveAssignments)  { $ActiveAssignments.Count  } else { 0 }
+    DemandesEnAttente   = if ($PendingRequests)    { $PendingRequests.Count    } else { 0 }
+    LimitesTenant       = "Écriture EM bloquée sur tenant Developer (403 — backend IGA hors périmètre)"
 } | Format-List
 
 Write-Host "=== FIN DE L'AUDIT ===" -ForegroundColor Green
@@ -159,10 +165,10 @@ $Timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
 # --- CSV 1 : Catalogs ---
 # Colonnes exportées : Id, DisplayName, State, IsExternallyVisible
 # Colonnes disponibles non exportées :
-#   Description          : description du catalog
-#   CreatedDateTime      : date de création
-#   ModifiedDateTime     : date de dernière modification
-$CatalogExport = Get-MgEntitlementManagementCatalog -All |
+#   Description      : description du catalog
+#   CreatedDateTime  : date de création
+#   ModifiedDateTime : date de dernière modification
+$CatalogExport = $Catalogs |
     Select-Object Id, DisplayName, State, IsExternallyVisible
 
 $CatalogExport | Export-Csv `
@@ -173,10 +179,10 @@ Write-Host "-> Catalogs : $($CatalogExport.Count) ligne(s) — EM_Catalogs_$Time
 # --- CSV 2 : Access Packages ---
 # Colonnes exportées : Id, DisplayName, Description, CatalogId, IsHidden
 # Colonnes disponibles non exportées :
-#   CreatedDateTime      : date de création du package
-#   ModifiedDateTime     : date de dernière modification
-#   IsRoleScopesVisible  : visibilité des rôles dans le portail My Access
-$PackageExport = Get-MgEntitlementManagementAccessPackage -All |
+#   CreatedDateTime     : date de création du package
+#   ModifiedDateTime    : date de dernière modification
+#   IsRoleScopesVisible : visibilité des rôles dans le portail My Access
+$PackageExport = $AccessPackages |
     Select-Object Id, DisplayName, Description, CatalogId, IsHidden
 
 $PackageExport | Export-Csv `
@@ -187,13 +193,14 @@ Write-Host "-> Access Packages : $($PackageExport.Count) ligne(s) — EM_AccessP
 # --- CSV 3 : Assignations actives ---
 # Colonnes exportées : Id, State, AccessPackageId, TargetId, AssignmentPolicyId
 # Colonnes disponibles non exportées :
-#   ExpiredDateTime      : date d'expiration de l'assignation (null = permanente)
-#   Schedule             : détail de la planification si time-bound
+#   ExpiredDateTime    : date d'expiration (null = permanente)
+#   Schedule           : détail de la planification si time-bound
 #
 # Note : TargetId = ObjectId Entra de l'utilisateur assigné.
 # Pour résoudre en DisplayName : Get-MgUser -UserId $_.TargetId (coûteux en volume)
 if ($ActiveAssignments) {
-    $ActiveAssignments | Select-Object Id, State, AccessPackageId, TargetId, AssignmentPolicyId |
+    $ActiveAssignments |
+        Select-Object Id, State, AccessPackageId, TargetId, AssignmentPolicyId |
         Export-Csv `
             -Path "$ExportPath\EM_AssignationsActives_$Timestamp.csv" `
             -Encoding UTF8 -NoTypeInformation
@@ -205,17 +212,18 @@ if ($ActiveAssignments) {
 # --- CSV 4 : Demandes en attente ---
 # Colonnes exportées : Id, RequestType, State, RequestorId, AccessPackageId
 # Colonnes disponibles non exportées :
-#   CreatedDateTime      : date de soumission de la demande
-#   CompletedDateTime    : date de traitement (null si encore en attente)
-#   Justification        : texte saisi par le demandeur — utile pour audit de conformité
-#   Answers              : réponses aux questions du workflow d'approbation
+#   CreatedDateTime   : date de soumission de la demande
+#   CompletedDateTime : date de traitement (null si encore en attente)
+#   Justification     : texte saisi par le demandeur — utile pour audit de conformité
+#   Answers           : réponses aux questions du workflow d'approbation
 #
 # Note : RequestorId = ObjectId Entra du demandeur.
 # Pour résoudre en DisplayName : Get-MgUser -UserId $_.Requestor.ObjectId
 if ($PendingRequests) {
-    $PendingRequests | Select-Object Id, RequestType, State,
-        @{N="RequestorId"; E={ $_.Requestor.ObjectId }},
-        @{N="AccessPackageId"; E={ $_.AccessPackage.Id }} |
+    $PendingRequests |
+        Select-Object Id, RequestType, State,
+            @{N="RequestorId";    E={ $_.Requestor.ObjectId }},
+            @{N="AccessPackageId"; E={ $_.AccessPackage.Id }} |
         Export-Csv `
             -Path "$ExportPath\EM_DemandesEnAttente_$Timestamp.csv" `
             -Encoding UTF8 -NoTypeInformation
@@ -226,11 +234,10 @@ if ($PendingRequests) {
 
 Write-Host "-> Export terminé dans : $ExportPath`n" -ForegroundColor Green
 
-
 # ========================================================================================
 # NETTOYAGE MÉMOIRE
 # ========================================================================================
-Remove-Variable Scopes, ActiveAssignments, PendingRequests,
+Remove-Variable Scopes, Catalogs, AccessPackages, ActiveAssignments, PendingRequests,
                 ExportPath, Timestamp, CatalogExport, PackageExport `
                 -ErrorAction SilentlyContinue
 
