@@ -16,7 +16,9 @@
 #   2. Audite les Transport Rules avec action ApplyRightsProtectionTemplate
 #   3. Audite les DLP Compliance Rules avec action EncryptRMSTemplate
 #   4. Affiche la sortie unifiée
-#   5. Ferme proprement toutes les sessions
+#   5. Affiche un résumé chiffré
+#   6. Exporte la vue unifiée en CSV horodaté
+#   7. Ferme proprement toutes les sessions
 #
 # Association DLP Rule → Policy parente :
 #   On ne suppose pas un champ "ParentPolicyName" fiable sur l'objet rule —
@@ -28,6 +30,11 @@
 #   Connect-ExchangeOnline → Get-TransportRule (Transport Rules Exchange)
 #   Connect-IPPSSession    → Get-DlpCompliancePolicy / Get-DlpComplianceRule (Purview)
 #
+# Note : ce script est en lecture seule — aucune modification du tenant.
+#
+# Fichiers CSV générés :
+#   ENC_AuditUnifie_YYYYMMDD_HHmmss.csv
+#
 # Module requis : ExchangeOnlineManagement
 # ========================================================================================
 
@@ -38,7 +45,7 @@
 # cache WAM qui bloque l'authentification interactive sur certains environnements.
 Get-PSSession | Remove-PSSession
 $env:MSAL_ENABLE_WAM = "0"
-Connect-IPPSSession  -UserPrincipalName GeptorAdmin@0n4mg.onmicrosoft.com -ShowBanner:$false
+Connect-IPPSSession    -UserPrincipalName GeptorAdmin@0n4mg.onmicrosoft.com -ShowBanner:$false
 Connect-ExchangeOnline -UserPrincipalName GeptorAdmin@0n4mg.onmicrosoft.com -ShowBanner:$false
 
 # Tableau de résultats normalisés — alimenté par les deux étapes d'audit.
@@ -67,6 +74,12 @@ foreach ($Rule in $EncryptingTransportRules) {
         # State : Enabled = règle active / Disabled = règle désactivée
         Statut    = "$($Rule.Mode) / $($Rule.State)"
         Template  = $Rule.ApplyRightsProtectionTemplate
+        # Colonnes ETR disponibles non exportées dans la collection commune :
+        #   Conditions détaillées (mots-clés, scope) :
+        #     $Rule.SubjectOrBodyContainsWords -join "|"
+        #     $Rule.FromScope / $Rule.SentToScope
+        #   Priority : ordre d'évaluation des règles — $Rule.Priority
+        #   Comments : commentaire admin — $Rule.Comments
     }
 }
 Write-Host "-> $($EncryptingTransportRules.Count) Transport Rule(s) de chiffrement trouvée(s).`n" -ForegroundColor Green
@@ -106,6 +119,12 @@ foreach ($Policy in $AllDlpPolicies) {
                 # Une rule Disabled:True = règle désactivée indépendamment de la policy.
                 Statut    = "Policy:$($Policy.Mode) / Disabled:$($Rule.Disabled)"
                 Template  = $Rule.EncryptRMSTemplate
+                # Colonnes DLP disponibles non exportées dans la collection commune :
+                #   Policy parente : $Policy.Name (déjà présent dans Statut)
+                #   SITs déclencheurs (JSON compact) :
+                #     ($Rule.ContentContainsSensitiveInformation | ConvertTo-Json -Compress)
+                #   Seuil de confiance et occurrences min : dans ContentContainsSensitiveInformation
+                #   NotifyUser : destinataires de la notification — $Rule.NotifyUser -join "|"
             }
         }
     }
@@ -140,10 +159,51 @@ Write-Host "=== RÉSUMÉ ===" -ForegroundColor Magenta
 } | Format-List
 
 # ========================================================================================
+# EXPORT CSV
+# ========================================================================================
+Write-Host "Export CSV en cours..." -ForegroundColor Cyan
+
+# EN LABO / Local :
+$ExportPath = "D:\Documents\ScriptsPowerShell\Exports\"
+# EN PRODUCTION :
+# $ExportPath = "$PSScriptRoot\Exports\"
+
+New-Item -ItemType Directory -Force -Path $ExportPath | Out-Null
+$Timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+
+# --- CSV unique : vue unifiée ETR + DLP ---
+# Colonnes exportées : Type, Nom, Mecanisme, Statut, Template
+# C'est le livrable central de cet exo : une vue multi-sources homogène,
+# directement exploitable pour un rapport de gouvernance chiffrement.
+#
+# Type     : "TransportRule" vs "DlpComplianceRule" — permet de filtrer par source dans Excel.
+# Mecanisme: distingue le déclencheur (mot-clé/scope ETR vs classification SIT DLP).
+# Statut   : encode Mode + State (ETR) ou Mode policy + Disabled rule (DLP).
+#            Une règle "Enforce / Enabled" ou "Policy:Enable / Disabled:False" = active en prod.
+# Template : nom du template RMS appliqué — "Encrypt-Only", "Do Not Forward", ou template custom AME.
+#
+# Colonnes disponibles non exportées (communes) :
+#   Pour aller plus loin sur les ETR : SubjectOrBodyContainsWords, FromScope, SentToScope, Priority
+#   Pour aller plus loin sur les DLP : ContentContainsSensitiveInformation (JSON), NotifyUser
+#   Ces colonnes nécessiteraient soit un second CSV dédié ETR, soit un second CSV dédié DLP,
+#   car leur structure est hétérogène entre les deux types de règles.
+if ($AuditResults.Count -gt 0) {
+    $AuditResults | Export-Csv `
+        -Path "$ExportPath\ENC_AuditUnifie_$Timestamp.csv" `
+        -Encoding UTF8 -NoTypeInformation
+    Write-Host "-> Audit unifié : $($AuditResults.Count) ligne(s) — ENC_AuditUnifie_$Timestamp.csv" -ForegroundColor Green
+} else {
+    Write-Host "-> Audit unifié : aucune règle de chiffrement trouvée — pas d'export." -ForegroundColor Yellow
+}
+
+Write-Host "-> Export terminé dans : $ExportPath`n" -ForegroundColor Green
+
+# ========================================================================================
 # NETTOYAGE MÉMOIRE
 # ========================================================================================
 Remove-Variable AuditResults, EncryptingTransportRules, AllDlpPolicies,
-                DlpCount, Policy, PolicyRules, Rule `
+                DlpCount, Policy, PolicyRules, Rule,
+                ExportPath, Timestamp `
                 -ErrorAction SilentlyContinue
 
 # ========================================================================================
