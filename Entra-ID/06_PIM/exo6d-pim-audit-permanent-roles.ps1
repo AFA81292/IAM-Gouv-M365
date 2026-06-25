@@ -1,5 +1,5 @@
 # ========================================================================================
-# Exercice 6d : PIM — Audit des rôles permanents à risque
+# Exercice 6d : Entra ID — PIM — Audit des rôles permanents à risque
 # ========================================================================================
 # Concept : En arrivant en mission, un consultant IAM audite les comptes surprivilégiés.
 # Un rôle permanent sans expiration = risque sécurité.
@@ -10,7 +10,8 @@
 #   - Les rôles sensibles (Global Admin, Privileged Role Admin...) assignés en direct
 #   - Le niveau de criticité de chaque assignation
 #
-# Cas d'usage réel : première semaine en mission IAM — état des lieux sécurité PIM.
+# Cas d'usage réel : première semaine en mission IAM — état des lieux sécurité PIM,
+# avec export CSV pour transmission au RSSI ou archivage d'audit.
 #
 # Delta pédagogique vs 6a :
 #   6a → audit global : éligibles + actives + demandes en attente (vue exhaustive)
@@ -23,9 +24,14 @@
 #   3. Audite les assignations permanentes (Type "noExpiration" + AssignmentType "Assigned")
 #   4. Audite tous les détenteurs de rôles sensibles (permanent ou non)
 #   5. Affiche un résumé chiffré
-#   6. Ferme proprement toutes les sessions
+#   6. Exporte les deux jeux de données en CSV horodatés
+#   7. Ferme proprement toutes les sessions
 #
 # Note : ce script est en lecture seule — aucune modification du tenant.
+#
+# Fichiers CSV générés :
+#   PIM_Permanents_YYYYMMDD_HHmmss.csv
+#   PIM_RolesSensibles_YYYYMMDD_HHmmss.csv
 #
 # Module requis : Microsoft.Graph.Identity.Governance, Microsoft.Graph.Users
 # Connexion     : Connect-MgGraph
@@ -35,8 +41,6 @@
 # RoleManagement.Read.All  : lire les assignations PIM actives
 # User.Read.All            : résoudre les PrincipalId (GUID) en DisplayName/UPN lisibles
 # -ContextScope Process    : bypasse le cache WAM — voir REX exercices 5b/5c.
-# REX : sans ce paramètre, WAM réutilise un token de session précédente avec des
-# scopes insuffisants — cause la plus fréquente des 403 silencieux sur les scripts CA/PIM.
 $Scopes = @(
     "RoleManagement.Read.All",
     "User.Read.All"
@@ -73,7 +77,6 @@ Write-Host "-> $($SensitiveRoles.Count) rôles sensibles définis.`n" -Foregroun
 # ÉTAPE 2 : Récupération de toutes les assignations actives
 # ========================================================================================
 Write-Host "2. Récupération des assignations actives..." -ForegroundColor Cyan
-Start-Sleep -Seconds 30
 
 # Get-MgRoleManagementDirectoryRoleAssignmentSchedule -All retourne l'ensemble
 # des assignations de rôles effectivement actives sur le tenant à cet instant.
@@ -93,7 +96,7 @@ Write-Host "Ces assignations devraient être converties en éligibles PIM :`n" -
 #   AssignmentType -eq "Assigned"                   → assignation directe hors activation PIM
 #
 # Pourquoi ce double filtre ?
-#   Une activation PIM time-bound a aussi AssignmentType "Activated" — elle expire.
+#   Une activation PIM time-bound a AssignmentType "Activated" — elle expire.
 #   On cible uniquement les "Assigned" permanents qui ne passeront jamais
 #   par le flux d'activation/justification PIM.
 $PermanentAssignments = $AllActive | Where-Object {
@@ -101,28 +104,36 @@ $PermanentAssignments = $AllActive | Where-Object {
     $_.AssignmentType -eq "Assigned"
 }
 
+# On construit les objets normalisés dans une collection réutilisable pour le CSV.
+$PermanentRows = @()
+
 if ($PermanentAssignments) {
-    $Results = foreach ($Assignment in $PermanentAssignments) {
+    foreach ($Assignment in $PermanentAssignments) {
         $User = Get-MgUser -UserId $Assignment.PrincipalId -ErrorAction SilentlyContinue
         $Role = Get-MgRoleManagementDirectoryRoleDefinition `
             -UnifiedRoleDefinitionId $Assignment.RoleDefinitionId -ErrorAction SilentlyContinue
 
         # Signalement visuel : "CRITIQUE" si le rôle figure dans la liste des rôles sensibles.
-        # Permet de trier et de prioriser les actions correctives.
         $IsSensitive = $SensitiveRoles -contains $Role.DisplayName
 
-        [PSCustomObject]@{
-            Utilisateur = if ($User) { $User.DisplayName }      else { $Assignment.PrincipalId }
-            UPN         = if ($User) { $User.UserPrincipalName } else { "Non résolu" }
-            Role        = if ($Role) { $Role.DisplayName }      else { $Assignment.RoleDefinitionId }
+        $Row = [PSCustomObject]@{
+            Utilisateur      = if ($User) { $User.DisplayName }       else { $Assignment.PrincipalId }
+            UPN              = if ($User) { $User.UserPrincipalName }  else { "Non résolu" }
+            PrincipalId      = $Assignment.PrincipalId
+            Role             = if ($Role) { $Role.DisplayName }       else { $Assignment.RoleDefinitionId }
+            RoleDefinitionId = $Assignment.RoleDefinitionId
             # "CRITIQUE" → rôle dans la liste des rôles sensibles définis en étape 1
             # "Normal"   → rôle permanent mais hors liste sensible (à documenter quand même)
-            Critique    = if ($IsSensitive) { "CRITIQUE" } else { "Normal" }
-            TypeAssig   = $Assignment.AssignmentType
+            Critique         = if ($IsSensitive) { "CRITIQUE" } else { "Normal" }
+            TypeAssig        = $Assignment.AssignmentType
         }
+        $PermanentRows += $Row
     }
+
     # Sort-Object Critique -Descending : les "CRITIQUE" remontent en haut de liste
-    $Results | Sort-Object Critique -Descending | Format-Table -AutoSize
+    $PermanentRows | Sort-Object Critique -Descending |
+        Select-Object Utilisateur, UPN, Role, Critique, TypeAssig |
+        Format-Table -AutoSize
 } else {
     Write-Host "-> Aucune assignation permanente trouvée." -ForegroundColor Green
 }
@@ -136,28 +147,37 @@ Write-Host "Utilisateurs avec un rôle critique actif :`n" -ForegroundColor Gray
 # Ici on ne filtre plus sur "noExpiration" — on veut voir TOUS les détenteurs
 # de rôles sensibles, qu'ils soient permanents, time-bound ou activés via PIM.
 # But : savoir qui a "les clés du royaume" en ce moment, quelle que soit la durée.
-$SensitiveAssignments = foreach ($Assignment in $AllActive) {
+$SensitiveRows = @()
+
+foreach ($Assignment in $AllActive) {
     $Role = Get-MgRoleManagementDirectoryRoleDefinition `
         -UnifiedRoleDefinitionId $Assignment.RoleDefinitionId -ErrorAction SilentlyContinue
 
     if ($SensitiveRoles -contains $Role.DisplayName) {
         $User = Get-MgUser -UserId $Assignment.PrincipalId -ErrorAction SilentlyContinue
 
-        [PSCustomObject]@{
-            Utilisateur = if ($User) { $User.DisplayName } else { $Assignment.PrincipalId }
-            Role        = if ($Role) { $Role.DisplayName } else { $Assignment.RoleDefinitionId }
-            Statut      = $Assignment.Status
+        $Row = [PSCustomObject]@{
+            Utilisateur      = if ($User) { $User.DisplayName }      else { $Assignment.PrincipalId }
+            UPN              = if ($User) { $User.UserPrincipalName } else { "Non résolu" }
+            PrincipalId      = $Assignment.PrincipalId
+            Role             = if ($Role) { $Role.DisplayName }      else { $Assignment.RoleDefinitionId }
+            RoleDefinitionId = $Assignment.RoleDefinitionId
+            Statut           = $Assignment.Status
+            TypeAssig        = $Assignment.AssignmentType
             # Expiration "PERMANENT" → assignation sans date de fin
             # Une date → time-bound (via PIM ou assignation directe temporaire)
-            Expiration  = if ($Assignment.ScheduleInfo.Expiration.EndDateTime) {
-                              $Assignment.ScheduleInfo.Expiration.EndDateTime
-                          } else { "PERMANENT" }
+            Expiration       = if ($Assignment.ScheduleInfo.Expiration.EndDateTime) {
+                                   $Assignment.ScheduleInfo.Expiration.EndDateTime
+                               } else { "PERMANENT" }
         }
+        $SensitiveRows += $Row
     }
 }
 
-if ($SensitiveAssignments) {
-    $SensitiveAssignments | Format-Table -AutoSize
+if ($SensitiveRows.Count -gt 0) {
+    $SensitiveRows |
+        Select-Object Utilisateur, UPN, Role, Statut, TypeAssig, Expiration |
+        Format-Table -AutoSize
 } else {
     Write-Host "-> Aucun rôle sensible actif trouvé." -ForegroundColor Green
 }
@@ -167,20 +187,73 @@ if ($SensitiveAssignments) {
 # ========================================================================================
 Write-Host "`n=== RÉSUMÉ ===" -ForegroundColor Magenta
 [PSCustomObject]@{
-    TotalAssignationsActives  = $AllActive.Count
-    AssignationsPermanentes   = if ($PermanentAssignments) { $PermanentAssignments.Count } else { 0 }
-    RôlesSensiblesActifs      = if ($SensitiveAssignments) { $SensitiveAssignments.Count } else { 0 }
-    Scope                     = "RoleManagement.Read.All (lecture seule)"
-    PointAttentionAudit       = "AssignmentType 'Assigned' + noExpiration = permanent hors PIM — à convertir en éligible"
+    TotalAssignationsActives = $AllActive.Count
+    AssignationsPermanentes  = $PermanentRows.Count
+    RôlesSensiblesActifs     = $SensitiveRows.Count
+    Scope                    = "RoleManagement.Read.All (lecture seule)"
+    PointAttentionAudit      = "AssignmentType 'Assigned' + noExpiration = permanent hors PIM — à convertir en éligible"
 } | Format-List
 
 Write-Host "=== FIN DE L'AUDIT PIM ===" -ForegroundColor Green
 
 # ========================================================================================
+# EXPORT CSV
+# ========================================================================================
+Write-Host "Export CSV en cours..." -ForegroundColor Cyan
+
+# EN LABO / Local :
+$ExportPath = "D:\Documents\ScriptsPowerShell\Exports\"
+# EN PRODUCTION :
+# $ExportPath = "$PSScriptRoot\Exports\"
+
+New-Item -ItemType Directory -Force -Path $ExportPath | Out-Null
+$Timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+
+# --- CSV 1 : Assignations permanentes ---
+# Colonnes exportées : Utilisateur, UPN, PrincipalId, Role, RoleDefinitionId,
+#                      Critique, TypeAssig
+# Colonnes disponibles non exportées :
+#   $Assignment.DirectoryScopeId : périmètre de l'assignation (tenant-wide = "/")
+#   $Assignment.Status           : statut de l'assignation (Provisioned, etc.)
+#   $Assignment.CreatedDateTime  : date de création de l'assignation
+#
+# Tri conseillé dans Excel : colonne Critique DESC pour prioriser les actions correctives.
+if ($PermanentRows.Count -gt 0) {
+    $PermanentRows | Sort-Object Critique -Descending |
+        Export-Csv `
+            -Path "$ExportPath\PIM_Permanents_$Timestamp.csv" `
+            -Encoding UTF8 -NoTypeInformation
+    Write-Host "-> Permanents : $($PermanentRows.Count) ligne(s) — PIM_Permanents_$Timestamp.csv" -ForegroundColor Green
+} else {
+    Write-Host "-> Permanents : aucune donnée à exporter." -ForegroundColor Yellow
+}
+
+# --- CSV 2 : Rôles sensibles actifs ---
+# Colonnes exportées : Utilisateur, UPN, PrincipalId, Role, RoleDefinitionId,
+#                      Statut, TypeAssig, Expiration
+# Colonnes disponibles non exportées :
+#   $Assignment.DirectoryScopeId : périmètre de l'assignation
+#   $Assignment.StartDateTime    : date d'activation effective du rôle
+#
+# Ce CSV est le livrable principal pour le RSSI : qui a les clés du royaume en ce moment,
+# et pour combien de temps. Filtrer sur Expiration = "PERMANENT" pour prioriser.
+if ($SensitiveRows.Count -gt 0) {
+    $SensitiveRows | Export-Csv `
+        -Path "$ExportPath\PIM_RolesSensibles_$Timestamp.csv" `
+        -Encoding UTF8 -NoTypeInformation
+    Write-Host "-> Rôles sensibles : $($SensitiveRows.Count) ligne(s) — PIM_RolesSensibles_$Timestamp.csv" -ForegroundColor Green
+} else {
+    Write-Host "-> Rôles sensibles : aucune donnée à exporter." -ForegroundColor Yellow
+}
+
+Write-Host "-> Export terminé dans : $ExportPath`n" -ForegroundColor Green
+
+# ========================================================================================
 # NETTOYAGE MÉMOIRE
 # ========================================================================================
 Remove-Variable Scopes, SensitiveRoles, AllActive, PermanentAssignments,
-                SensitiveAssignments, Assignment, User, Role, Results, IsSensitive `
+                PermanentRows, SensitiveRows, Assignment, User, Role, Row, IsSensitive,
+                ExportPath, Timestamp `
                 -ErrorAction SilentlyContinue
 
 # ========================================================================================
