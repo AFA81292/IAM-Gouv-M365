@@ -21,17 +21,24 @@
 #   2. Audite les assignations ELIGIBLES (rôle disponible, pas encore activé)
 #   3. Audite les assignations ACTIVES (rôle actif en ce moment)
 #   4. Audite les demandes d'activation en attente d'approbation
-#   5. Ferme proprement toutes les sessions
+#   5. Exporte les trois jeux de données en CSV horodatés
+#   6. Ferme proprement toutes les sessions
 #
 # Cas d'usage réel : un consultant IAM arrive en mission et veut identifier :
 #   - Qui peut activer quels rôles (éligibles)
 #   - Qui a des rôles actifs en ce moment (actifs permanents vs activés via PIM)
 #   - Quelles demandes d'activation sont en attente de validation
+#   Le tout exporté en CSV pour transmission au RSSI ou archivage d'audit.
 #
 # AssignmentType sur les actives :
 #   "Assigned"  = assignation permanente hors PIM — risque sécurité à identifier
 #                 et convertir en éligible
 #   "Activated" = activé via PIM par un utilisateur éligible — comportement attendu
+#
+# Fichiers CSV générés :
+#   PIM_Eligibles_YYYYMMDD_HHmmss.csv
+#   PIM_Actives_YYYYMMDD_HHmmss.csv
+#   PIM_DemandesEnAttente_YYYYMMDD_HHmmss.csv
 #
 # Module requis : Microsoft.Graph.Identity.Governance, Microsoft.Graph.Users
 # Connexion     : Connect-MgGraph
@@ -60,6 +67,10 @@ Write-Host "Utilisateurs pouvant activer un rôle privilégié sur demande :`n" 
 # mais dont le rôle n'est pas encore actif.
 $EligibleAssignments = Get-MgRoleManagementDirectoryRoleEligibilitySchedule -All
 
+# On construit les objets normalisés dans une collection réutilisable pour le CSV.
+# Évite de parcourir $EligibleAssignments deux fois (console + export).
+$EligibleRows = @()
+
 if ($EligibleAssignments) {
     foreach ($Assignment in $EligibleAssignments) {
         # PrincipalId et RoleDefinitionId sont des GUIDs — on résout en noms lisibles.
@@ -70,19 +81,23 @@ if ($EligibleAssignments) {
             -UnifiedRoleDefinitionId $Assignment.RoleDefinitionId `
             -ErrorAction SilentlyContinue
 
-        [PSCustomObject]@{
-            Utilisateur = if ($User) { $User.DisplayName } else { $Assignment.PrincipalId }
-            Role        = if ($Role) { $Role.DisplayName } else { $Assignment.RoleDefinitionId }
+        $Row = [PSCustomObject]@{
+            Utilisateur   = if ($User) { $User.DisplayName } else { $Assignment.PrincipalId }
+            PrincipalId   = $Assignment.PrincipalId
+            Role          = if ($Role) { $Role.DisplayName } else { $Assignment.RoleDefinitionId }
+            RoleDefinitionId = $Assignment.RoleDefinitionId
             # MemberType :
             #   "Direct" = assignation directe à l'utilisateur
             #   "Group"  = assignation via un groupe — l'utilisateur hérite de l'éligibilité
-            TypeMembre  = $Assignment.MemberType
-            # ScheduleInfo.Expiration.EndDateTime = null → assignation éligible sans limite
-            # Une éligibilité permanente est acceptable (vs une activation permanente qui est un risque)
-            Expiration  = if ($Assignment.ScheduleInfo.Expiration.EndDateTime) {
-                              $Assignment.ScheduleInfo.Expiration.EndDateTime
-                          } else { "Permanent" }
+            TypeMembre    = $Assignment.MemberType
+            # ScheduleInfo.Expiration.EndDateTime = null → éligibilité sans limite de durée.
+            # Une éligibilité permanente est acceptable (vs une activation permanente = risque).
+            Expiration    = if ($Assignment.ScheduleInfo.Expiration.EndDateTime) {
+                                $Assignment.ScheduleInfo.Expiration.EndDateTime
+                            } else { "Permanent" }
         }
+        $EligibleRows += $Row
+        $Row | Select-Object Utilisateur, Role, TypeMembre, Expiration
     }
 } else {
     Write-Host "-> Aucune assignation éligible trouvée." -ForegroundColor Yellow
@@ -98,6 +113,8 @@ Write-Host "Utilisateurs avec un rôle privilégié actif en ce moment :`n" -For
 # actives — rôles effectivement en vigueur sur le tenant à cet instant.
 $ActiveAssignments = Get-MgRoleManagementDirectoryRoleAssignmentSchedule -All
 
+$ActiveRows = @()
+
 if ($ActiveAssignments) {
     foreach ($Assignment in $ActiveAssignments) {
         $User = Get-MgUser -UserId $Assignment.PrincipalId -ErrorAction SilentlyContinue
@@ -105,20 +122,22 @@ if ($ActiveAssignments) {
             -UnifiedRoleDefinitionId $Assignment.RoleDefinitionId `
             -ErrorAction SilentlyContinue
 
-        [PSCustomObject]@{
-            Utilisateur = if ($User) { $User.DisplayName } else { $Assignment.PrincipalId }
-            Role        = if ($Role) { $Role.DisplayName } else { $Assignment.RoleDefinitionId }
-            Statut      = $Assignment.Status
+        $Row = [PSCustomObject]@{
+            Utilisateur      = if ($User) { $User.DisplayName } else { $Assignment.PrincipalId }
+            PrincipalId      = $Assignment.PrincipalId
+            Role             = if ($Role) { $Role.DisplayName } else { $Assignment.RoleDefinitionId }
+            RoleDefinitionId = $Assignment.RoleDefinitionId
+            Statut           = $Assignment.Status
             # AssignmentType — point d'attention audit :
-            #   "Assigned"  = rôle permanent assigné hors PIM (ou via PIM en mode permanent)
-            #                 → à identifier et convertir en éligible si possible
-            #   "Activated" = activé via PIM par un utilisateur éligible
-            #                 → comportement attendu, durée limitée
-            TypeAssig   = $Assignment.AssignmentType
-            Expiration  = if ($Assignment.ScheduleInfo.Expiration.EndDateTime) {
-                              $Assignment.ScheduleInfo.Expiration.EndDateTime
-                          } else { "Permanent" }
+            #   "Assigned"  = rôle permanent assigné hors PIM → à convertir en éligible
+            #   "Activated" = activé via PIM par un utilisateur éligible → comportement attendu
+            TypeAssig        = $Assignment.AssignmentType
+            Expiration       = if ($Assignment.ScheduleInfo.Expiration.EndDateTime) {
+                                   $Assignment.ScheduleInfo.Expiration.EndDateTime
+                               } else { "Permanent" }
         }
+        $ActiveRows += $Row
+        $Row | Select-Object Utilisateur, Role, Statut, TypeAssig, Expiration
     }
 } else {
     Write-Host "-> Aucune assignation active trouvée." -ForegroundColor Yellow
@@ -131,12 +150,11 @@ Write-Host "`n=== DEMANDES D'ACTIVATION EN COURS ===" -ForegroundColor Cyan
 
 # Get-MgRoleManagementDirectoryRoleAssignmentScheduleRequest retourne l'historique
 # de toutes les demandes PIM (approuvées, refusées, en attente).
-# On filtre sur "PendingApproval" — demandes soumises, pas encore validées par un approbateur.
-#
-# Cas d'usage : un admin PIM ou un approbateur désigné veut traiter les demandes
-# en attente sans passer par le portail My Access ou Entra Admin Center.
+# On filtre sur "PendingApproval" — demandes soumises, pas encore validées.
 $PendingRequests = Get-MgRoleManagementDirectoryRoleAssignmentScheduleRequest `
     -All | Where-Object { $_.Status -eq "PendingApproval" }
+
+$PendingRows = @()
 
 if ($PendingRequests) {
     foreach ($Request in $PendingRequests) {
@@ -145,18 +163,23 @@ if ($PendingRequests) {
             -UnifiedRoleDefinitionId $Request.RoleDefinitionId `
             -ErrorAction SilentlyContinue
 
-        [PSCustomObject]@{
-            Utilisateur   = if ($User) { $User.DisplayName } else { $Request.PrincipalId }
-            Role          = if ($Role) { $Role.DisplayName } else { $Request.RoleDefinitionId }
+        $Row = [PSCustomObject]@{
+            Utilisateur      = if ($User) { $User.DisplayName } else { $Request.PrincipalId }
+            PrincipalId      = $Request.PrincipalId
+            Role             = if ($Role) { $Role.DisplayName } else { $Request.RoleDefinitionId }
+            RoleDefinitionId = $Request.RoleDefinitionId
             # Action :
             #   "SelfActivate"   = l'utilisateur active son propre rôle éligible
             #   "AdminAssign"    = un admin assigne le rôle directement
             #   "SelfDeactivate" = l'utilisateur désactive son rôle avant expiration
-            Action        = $Request.Action
-            Statut        = $Request.Status
-            # Justification = texte saisi par l'utilisateur à l'activation — loggé en audit
-            Justification = $Request.Justification
+            Action           = $Request.Action
+            Statut           = $Request.Status
+            # Justification = texte saisi par l'utilisateur à l'activation — loggé en audit.
+            # Colonne particulièrement utile pour les audits de conformité.
+            Justification    = $Request.Justification
         }
+        $PendingRows += $Row
+        $Row | Select-Object Utilisateur, Role, Action, Statut, Justification
     }
 } else {
     Write-Host "-> Aucune demande en attente d'approbation." -ForegroundColor Yellow
@@ -167,9 +190,9 @@ if ($PendingRequests) {
 # ========================================================================================
 Write-Host "`n=== RÉSUMÉ ===" -ForegroundColor Magenta
 [PSCustomObject]@{
-    AssignationsEligibles = if ($EligibleAssignments) { $EligibleAssignments.Count } else { 0 }
-    AssignationsActives   = if ($ActiveAssignments)   { $ActiveAssignments.Count   } else { 0 }
-    DemandesEnAttente     = if ($PendingRequests)     { $PendingRequests.Count     } else { 0 }
+    AssignationsEligibles = $EligibleRows.Count
+    AssignationsActives   = $ActiveRows.Count
+    DemandesEnAttente     = $PendingRows.Count
     Scope                 = "RoleManagement.Read.All (lecture seule)"
     PointAttentionAudit   = "AssignmentType 'Assigned' sur les actives = permanent hors PIM — à convertir en éligible"
 } | Format-List
@@ -177,10 +200,78 @@ Write-Host "`n=== RÉSUMÉ ===" -ForegroundColor Magenta
 Write-Host "=== FIN DE L'AUDIT PIM ===" -ForegroundColor Green
 
 # ========================================================================================
+# EXPORT CSV
+# ========================================================================================
+Write-Host "Export CSV en cours..." -ForegroundColor Cyan
+
+# EN LABO / Local :
+$ExportPath = "D:\Documents\ScriptsPowerShell\Exports\"
+# EN PRODUCTION :
+# $ExportPath = "$PSScriptRoot\Exports\"
+
+New-Item -ItemType Directory -Force -Path $ExportPath | Out-Null
+$Timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+
+# --- CSV 1 : Assignations éligibles ---
+# Colonnes exportées : Utilisateur, PrincipalId, Role, RoleDefinitionId, TypeMembre, Expiration
+# Colonnes disponibles non exportées :
+#   $Assignment.DirectoryScopeId  : périmètre de l'assignation (tenant-wide = "/")
+#   $Assignment.AppScopeId        : périmètre applicatif si scopé à une app
+#   $Assignment.CreatedDateTime   : date de création de l'assignation éligible
+if ($EligibleRows.Count -gt 0) {
+    $EligibleRows | Export-Csv `
+        -Path "$ExportPath\PIM_Eligibles_$Timestamp.csv" `
+        -Encoding UTF8 -NoTypeInformation
+    Write-Host "-> Éligibles : $($EligibleRows.Count) ligne(s) — PIM_Eligibles_$Timestamp.csv" -ForegroundColor Green
+} else {
+    Write-Host "-> Éligibles : aucune donnée à exporter." -ForegroundColor Yellow
+}
+
+# --- CSV 2 : Assignations actives ---
+# Colonnes exportées : Utilisateur, PrincipalId, Role, RoleDefinitionId, Statut, TypeAssig, Expiration
+# Colonnes disponibles non exportées :
+#   $Assignment.DirectoryScopeId  : périmètre de l'assignation
+#   $Assignment.StartDateTime     : date d'activation effective du rôle
+#
+# Point d'attention à l'analyse : filtrer sur TypeAssig = "Assigned" + Expiration = "Permanent"
+# pour identifier les comptes à risque (droits permanents hors PIM).
+if ($ActiveRows.Count -gt 0) {
+    $ActiveRows | Export-Csv `
+        -Path "$ExportPath\PIM_Actives_$Timestamp.csv" `
+        -Encoding UTF8 -NoTypeInformation
+    Write-Host "-> Actives : $($ActiveRows.Count) ligne(s) — PIM_Actives_$Timestamp.csv" -ForegroundColor Green
+} else {
+    Write-Host "-> Actives : aucune donnée à exporter." -ForegroundColor Yellow
+}
+
+# --- CSV 3 : Demandes en attente ---
+# Colonnes exportées : Utilisateur, PrincipalId, Role, RoleDefinitionId,
+#                      Action, Statut, Justification
+# Colonnes disponibles non exportées :
+#   $Request.CreatedDateTime   : date de soumission de la demande
+#   $Request.CompletedDateTime : date de traitement (null si encore en attente)
+#   $Request.ScheduleInfo      : durée demandée pour l'activation
+#
+# La colonne Justification est particulièrement utile pour les audits de conformité —
+# elle trace le motif déclaré par l'utilisateur pour chaque activation.
+if ($PendingRows.Count -gt 0) {
+    $PendingRows | Export-Csv `
+        -Path "$ExportPath\PIM_DemandesEnAttente_$Timestamp.csv" `
+        -Encoding UTF8 -NoTypeInformation
+    Write-Host "-> Demandes en attente : $($PendingRows.Count) ligne(s) — PIM_DemandesEnAttente_$Timestamp.csv" -ForegroundColor Green
+} else {
+    Write-Host "-> Demandes en attente : aucune donnée à exporter." -ForegroundColor Yellow
+}
+
+Write-Host "-> Export terminé dans : $ExportPath`n" -ForegroundColor Green
+
+# ========================================================================================
 # NETTOYAGE MÉMOIRE
 # ========================================================================================
 Remove-Variable Scopes, EligibleAssignments, ActiveAssignments, PendingRequests,
-                Assignment, User, Role, Request `
+                EligibleRows, ActiveRows, PendingRows,
+                Assignment, User, Role, Row, Request,
+                ExportPath, Timestamp `
                 -ErrorAction SilentlyContinue
 
 # ========================================================================================
