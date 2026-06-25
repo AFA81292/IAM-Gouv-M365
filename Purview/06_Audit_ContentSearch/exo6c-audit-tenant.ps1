@@ -23,7 +23,17 @@
 #   2. Audite les Audit Retention Policies (vue globale, répartition, détail, filtre repo)
 #   3. Audite les Content Searches (vue globale, statuts, alertes, détail, filtre repo)
 #   4. Affiche un résumé consolidé
-#   5. Ferme proprement toutes les sessions
+#   5. Exporte les résultats en CSV horodatés
+#   6. Ferme proprement toutes les sessions
+#
+# Note : ce script est en lecture seule — aucune modification du tenant.
+#
+# Fichiers CSV générés :
+#   ARP_InventaireComplet_YYYYMMDD_HHmmss.csv
+#   ARP_RepoPrefix_YYYYMMDD_HHmmss.csv
+#   CS_InventaireComplet_YYYYMMDD_HHmmss.csv
+#   CS_Problematiques_YYYYMMDD_HHmmss.csv
+#   CS_RepoPrefix_YYYYMMDD_HHmmss.csv
 #
 # Connexion requise : Connect-IPPSSession uniquement
 # Licence           : Microsoft Purview Audit Premium (inclus E5)
@@ -198,19 +208,153 @@ if (-not $AllSearches) {
 # ========================================================================================
 Write-Host "`n=== RÉSUMÉ ===" -ForegroundColor Magenta
 [PSCustomObject]@{
-    ARPs_Total         = if ($AllARPs)     { ($AllARPs     | Measure-Object).Count } else { 0 }
-    ARPs_RepoPrefix    = if ($AllARPs)     { ($AllARPs     | Where-Object { $_.Name -like "ARP-*" } | Measure-Object).Count } else { 0 }
-    Searches_Total     = if ($AllSearches) { ($AllSearches | Measure-Object).Count } else { 0 }
-    Searches_Completed = if ($AllSearches) { ($AllSearches | Where-Object { $_.Status -eq "Completed" } | Measure-Object).Count } else { 0 }
-    Searches_Failed    = if ($AllSearches) { ($AllSearches | Where-Object { $_.Status -eq "Failed"    } | Measure-Object).Count } else { 0 }
-    Searches_RepoPrefix = if ($AllSearches){ ($AllSearches | Where-Object { $_.Name  -like "CS-*"     } | Measure-Object).Count } else { 0 }
+    ARPs_Total          = if ($AllARPs)     { ($AllARPs     | Measure-Object).Count } else { 0 }
+    ARPs_RepoPrefix     = if ($AllARPs)     { ($AllARPs     | Where-Object { $_.Name -like "ARP-*" } | Measure-Object).Count } else { 0 }
+    Searches_Total      = if ($AllSearches) { ($AllSearches | Measure-Object).Count } else { 0 }
+    Searches_Completed  = if ($AllSearches) { ($AllSearches | Where-Object { $_.Status -eq "Completed" } | Measure-Object).Count } else { 0 }
+    Searches_Failed     = if ($AllSearches) { ($AllSearches | Where-Object { $_.Status -eq "Failed"    } | Measure-Object).Count } else { 0 }
+    Searches_RepoPrefix = if ($AllSearches) { ($AllSearches | Where-Object { $_.Name  -like "CS-*"     } | Measure-Object).Count } else { 0 }
 } | Format-List
+
+# ========================================================================================
+# EXPORT CSV
+# ========================================================================================
+Write-Host "Export CSV en cours..." -ForegroundColor Cyan
+
+# EN LABO / Local :
+$ExportPath = "D:\Documents\ScriptsPowerShell\Exports\"
+# EN PRODUCTION :
+# $ExportPath = "$PSScriptRoot\Exports\"
+
+New-Item -ItemType Directory -Force -Path $ExportPath | Out-Null
+$Timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+
+# ---- SECTION ARP ----
+
+# --- CSV 1 : Inventaire complet des ARPs ---
+# Colonnes exportées : Name, RecordTypes, RetentionDuration, Priority, UserIds, Operations, Description
+# Colonnes disponibles non exportées :
+#   $ARP.CreatedBy          : identité ayant créé la politique (pas toujours exposé)
+#   $ARP.LastModifiedTime   : date de dernière modification — appeler via $_.LastModifiedTime
+#   $ARP.Guid               : identifiant unique stable — utile pour les scripts de suppression ciblée
+if ($AllARPs) {
+    $ARPExport = $AllARPs | Sort-Object Priority |
+        Select-Object Name, RetentionDuration, Priority,
+            @{N="RecordTypes";  E={ $_.RecordTypes  -join "|" }},
+            @{N="UserIds";      E={ if ($_.UserIds)    { $_.UserIds    -join "|" } else { "Tous" } }},
+            @{N="Operations";   E={ if ($_.Operations) { $_.Operations -join "|" } else { "Toutes" } }},
+            Description
+
+    $ARPExport | Export-Csv `
+        -Path "$ExportPath\ARP_InventaireComplet_$Timestamp.csv" `
+        -Encoding UTF8 -NoTypeInformation
+    Write-Host "-> ARP inventaire complet : $($ARPExport.Count) ligne(s) — ARP_InventaireComplet_$Timestamp.csv" -ForegroundColor Green
+} else {
+    Write-Host "-> ARP inventaire : aucune donnée à exporter." -ForegroundColor Yellow
+}
+
+# --- CSV 2 : ARPs repo uniquement (préfixe "ARP-") ---
+# Colonnes exportées : Name, RetentionDuration, Priority, RecordTypes, UserIds, Operations
+# Cas d'usage : livrable de fin de lab — prouver ce qui a été créé dans ces exercices
+# vs les ARPs système préexistantes. Facilite le nettoyage post-lab.
+if ($AllARPs) {
+    $RepoARPsExport = $AllARPs | Where-Object { $_.Name -like "ARP-*" } | Sort-Object Priority
+    if ($RepoARPsExport) {
+        $RepoARPsExport |
+            Select-Object Name, RetentionDuration, Priority,
+                @{N="RecordTypes";  E={ $_.RecordTypes  -join "|" }},
+                @{N="UserIds";      E={ if ($_.UserIds)    { $_.UserIds    -join "|" } else { "Tous" } }},
+                @{N="Operations";   E={ if ($_.Operations) { $_.Operations -join "|" } else { "Toutes" } }} |
+            Export-Csv `
+                -Path "$ExportPath\ARP_RepoPrefix_$Timestamp.csv" `
+                -Encoding UTF8 -NoTypeInformation
+        Write-Host "-> ARP repo (ARP-*) : $($RepoARPsExport.Count) ligne(s) — ARP_RepoPrefix_$Timestamp.csv" -ForegroundColor Green
+    } else {
+        Write-Host "-> ARP repo : aucune ARP avec préfixe 'ARP-' — pas d'export." -ForegroundColor Yellow
+    }
+}
+
+# ---- SECTION CONTENT SEARCHES ----
+
+# --- CSV 3 : Inventaire complet des Content Searches ---
+# Colonnes exportées : Name, Status, Items, TailleMo, ContentMatchQuery, ExchangeLocation, Description
+# Colonnes disponibles non exportées :
+#   $_.SharePointLocation     : sites SharePoint ciblés — appeler via $_.SharePointLocation -join "|"
+#   $_.OneDriveLocation       : comptes OneDrive ciblés — appeler via $_.OneDriveLocation -join "|"
+#   $_.TeamsLocation          : équipes Teams ciblées   — appeler via $_.TeamsLocation -join "|"
+#   $_.CreatedBy              : UPN de l'auteur de la search
+#   $_.LastModifiedTime       : date de dernière modification
+#   $_.JobEndTime             : date/heure de fin d'exécution (disponible si Completed)
+#   $_.Errors                 : détail des erreurs si Status = "Failed"
+if ($AllSearches) {
+    $CSExport = $AllSearches | Sort-Object Name |
+        Select-Object Name, Status,
+            @{N="Items";              E={ if ($_.Items) { $_.Items } else { 0 } }},
+            @{N="TailleMo";           E={ if ($_.Size -ge 1MB) { [math]::Round($_.Size / 1MB, 2) } else { 0 } }},
+            @{N="ContentMatchQuery";  E={ $_.ContentMatchQuery }},
+            @{N="ExchangeLocation";   E={ if ($_.ExchangeLocation) { $_.ExchangeLocation -join "|" } else { "" } }},
+            Description
+
+    $CSExport | Export-Csv `
+        -Path "$ExportPath\CS_InventaireComplet_$Timestamp.csv" `
+        -Encoding UTF8 -NoTypeInformation
+    Write-Host "-> CS inventaire complet : $($CSExport.Count) ligne(s) — CS_InventaireComplet_$Timestamp.csv" -ForegroundColor Green
+} else {
+    Write-Host "-> CS inventaire : aucune donnée à exporter." -ForegroundColor Yellow
+}
+
+# --- CSV 4 : Searches problématiques (Failed / NotStarted) ---
+# Colonnes exportées : Name, Status, ContentMatchQuery, ExchangeLocation, Errors
+# Ce CSV est le livrable d'alerte opérationnelle : liste des searches à corriger
+# en priorité. L'inclusion de ContentMatchQuery permet de relancer sans repasser
+# dans le portail. Errors donne le détail du blocage pour les searches Failed.
+if ($AllSearches) {
+    $ProblemExport = $AllSearches | Where-Object { $_.Status -in @("Failed", "NotStarted") }
+    if ($ProblemExport) {
+        $ProblemExport |
+            Select-Object Name, Status,
+                @{N="ContentMatchQuery"; E={ $_.ContentMatchQuery }},
+                @{N="ExchangeLocation";  E={ if ($_.ExchangeLocation) { $_.ExchangeLocation -join "|" } else { "" } }},
+                @{N="Errors";            E={ $_.Errors }} |
+            Export-Csv `
+                -Path "$ExportPath\CS_Problematiques_$Timestamp.csv" `
+                -Encoding UTF8 -NoTypeInformation
+        Write-Host "-> CS problématiques : $($ProblemExport.Count) ligne(s) — CS_Problematiques_$Timestamp.csv" -ForegroundColor Yellow
+    } else {
+        Write-Host "-> CS problématiques : aucune search en échec ou non démarrée — pas d'export." -ForegroundColor Green
+    }
+}
+
+# --- CSV 5 : Searches repo uniquement (préfixe "CS-") ---
+# Colonnes exportées : Name, Status, Items, TailleMo, ContentMatchQuery
+# Cas d'usage : bilan de fin de lab — inventaire des searches créées dans ces exercices.
+# TailleMo en numérique (pas formaté) pour permettre un tri/filtre facile dans Excel.
+if ($AllSearches) {
+    $RepoCSExport = $AllSearches | Where-Object { $_.Name -like "CS-*" }
+    if ($RepoCSExport) {
+        $RepoCSExport |
+            Select-Object Name, Status,
+                @{N="Items";             E={ if ($_.Items) { $_.Items } else { 0 } }},
+                @{N="TailleMo";          E={ if ($_.Size -ge 1MB) { [math]::Round($_.Size / 1MB, 2) } else { 0 } }},
+                @{N="ContentMatchQuery"; E={ $_.ContentMatchQuery }} |
+            Export-Csv `
+                -Path "$ExportPath\CS_RepoPrefix_$Timestamp.csv" `
+                -Encoding UTF8 -NoTypeInformation
+        Write-Host "-> CS repo (CS-*) : $($RepoCSExport.Count) ligne(s) — CS_RepoPrefix_$Timestamp.csv" -ForegroundColor Green
+    } else {
+        Write-Host "-> CS repo : aucune search avec préfixe 'CS-' — pas d'export." -ForegroundColor Yellow
+    }
+}
+
+Write-Host "-> Export terminé dans : $ExportPath`n" -ForegroundColor Green
 
 # ========================================================================================
 # NETTOYAGE MÉMOIRE
 # ========================================================================================
 Remove-Variable AllARPs, RepoARPs, ARP, AllSearches, ProblemSearches, `
-                RepoSearches, Search `
+                RepoSearches, Search, `
+                ARPExport, RepoARPsExport, CSExport, ProblemExport, RepoCSExport, `
+                ExportPath, Timestamp `
                 -ErrorAction SilentlyContinue
 
 # ========================================================================================
