@@ -356,7 +356,7 @@ Write-Host "6. Vérification post-assignation..." -ForegroundColor Cyan
 
 # REX : la propagation Graph post-création n'est pas instantanée.
 # 15 secondes couvrent la latence backend standard.
-Start-Sleep -Seconds 15
+Start-Sleep -Seconds 30
 
 $CheckAssignment = $null
 
