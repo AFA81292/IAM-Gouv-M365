@@ -514,7 +514,6 @@ Disconnect-MgGraph
   * Objectif : Déploiement d'un rôle RBAC granulaire pour la création d'applications — démonstration du least privilege via rôle custom vs rôle built-in trop large.
   * Connexion requise : `Connect-MgGraph -Scopes "RoleManagement.ReadWrite.Directory"` + `-ContextScope Process`
   * Licence requise : Entra ID P1/P2
-  * Note : script déplacé depuis `01_User_Management/exo1a` — même contenu, reclassé dans son chapitre naturel.
 * [Exo 8b : Assignation d'un rôle built-in](./08_RBAC/exo8b-assign-builtin-role.ps1)
   * Objectif : Assigner un rôle Entra built-in à un utilisateur — opération la plus fréquente en mission IAM, avec vérification de l'assignation existante avant création.
   * Connexion requise : `Connect-MgGraph -Scopes "RoleManagement.ReadWrite.Directory"` + `-ContextScope Process`
