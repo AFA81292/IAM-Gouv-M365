@@ -10,24 +10,30 @@
 #   2. Récupère toutes les politiques CA du tenant
 #   3. Affiche un inventaire global (Id, Nom, État)
 #   4. Détaille les politiques par état (actives / report-only / désactivées)
-#   5. Ferme proprement toutes les sessions
+#   5. Exporte l'inventaire complet et le détail par état en CSV horodatés
+#   6. Ferme proprement toutes les sessions
 #
 # Cas d'usage réel : un consultant IAM arrive en mission et veut un état des lieux
-# complet des politiques CA en place en moins d'une minute — sans toucher à aucun objet.
+# complet des politiques CA en place en moins d'une minute — sans toucher à aucun objet,
+# avec un export CSV exploitable immédiatement dans Excel.
 #
 # États possibles d'une politique CA :
-#   "enabled"                          → active, évaluée ET appliquée en production
+#   "enabled"                           → active, évaluée ET appliquée en production
 #   "enabledForReportingButNotEnforced" → Report-Only : évaluée, loggée, mais pas bloquante
 #                                         Bonne pratique avant toute activation en prod —
 #                                         permet d'observer l'impact sans risque utilisateur
-#   "disabled"                         → désactivée, n'évalue rien, n'applique rien
+#   "disabled"                          → désactivée, n'évalue rien, n'applique rien
 #
 # Architecture d'une politique CA :
-#   Conditions    → qui (users/groupes), depuis où (named locations, pays),
-#                   avec quoi (apps, plateformes, device compliance)
+#   Conditions     → qui (users/groupes), depuis où (named locations, pays),
+#                    avec quoi (apps, plateformes, device compliance)
 #   Grant Controls → bloquer, exiger MFA, exiger poste Intune conforme,
 #                    exiger Hybrid Azure AD Join, etc.
 #   Session Controls → fréquence de reconnexion, persistance de session, app enforced
+#
+# Fichiers CSV générés :
+#   CA_InventaireComplet_YYYYMMDD_HHmmss.csv
+#   CA_ParEtat_YYYYMMDD_HHmmss.csv
 #
 # Module requis : Microsoft.Graph.Identity.SignIns
 # Connexion     : Connect-MgGraph
@@ -130,10 +136,78 @@ Write-Host "`n=== RÉSUMÉ ===" -ForegroundColor Magenta
 Write-Host "=== FIN DE L'AUDIT ===" -ForegroundColor Green
 
 # ========================================================================================
+# EXPORT CSV
+# ========================================================================================
+Write-Host "Export CSV en cours..." -ForegroundColor Cyan
+
+# EN LABO / Local :
+$ExportPath = "D:\Documents\ScriptsPowerShell\Exports\"
+# EN PRODUCTION :
+# $ExportPath = "$PSScriptRoot\Exports\"
+
+New-Item -ItemType Directory -Force -Path $ExportPath | Out-Null
+$Timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+
+# --- CSV 1 : Inventaire complet ---
+# Colonnes exportées : Id, DisplayName, State, CreatedDateTime, ModifiedDateTime
+# Colonnes disponibles non exportées :
+#   Conditions.Users.IncludeUsers    : liste des users/groupes ciblés
+#   Conditions.Users.ExcludeGroups   : groupes exclus (ex: break-glass)
+#   Conditions.Applications.IncludeApplications : apps ciblées
+#   GrantControls.BuiltInControls    : actions (mfa, block, compliantDevice...)
+#   GrantControls.Operator           : OR / AND entre les contrôles
+#   SessionControls                  : restrictions de session (fréquence, persistance)
+#
+# Note : Conditions et GrantControls sont des objets imbriqués — les exporter
+# directement produit "Microsoft.Graph.PowerShell.Models.xxx" dans le CSV.
+# Pour les aplatir : $_.GrantControls.BuiltInControls -join "|" dans une colonne calculée.
+$InventaireExport = $Policies |
+    Select-Object Id, DisplayName, State,
+        CreatedDateTime,
+        ModifiedDateTime,
+        @{N="GrantControls"; E={ $_.GrantControls.BuiltInControls -join "|" }},
+        @{N="Operator";      E={ $_.GrantControls.Operator }},
+        @{N="IncludeUsers";  E={ $_.Conditions.Users.IncludeUsers -join "|" }},
+        @{N="ExcludeGroups"; E={ $_.Conditions.Users.ExcludeGroups -join "|" }},
+        @{N="IncludeApps";   E={ $_.Conditions.Applications.IncludeApplications -join "|" }}
+
+$InventaireExport | Export-Csv `
+    -Path "$ExportPath\CA_InventaireComplet_$Timestamp.csv" `
+    -Encoding UTF8 -NoTypeInformation
+Write-Host "-> Inventaire complet : $($InventaireExport.Count) ligne(s) — CA_InventaireComplet_$Timestamp.csv" -ForegroundColor Green
+
+# --- CSV 2 : Détail par état ---
+# Colonnes exportées : Id, DisplayName, State, EtatLabel
+# EtatLabel : libellé lisible du State pour faciliter le tri/filtre dans Excel
+# (évite d'avoir "enabledForReportingButNotEnforced" en colonne brute)
+#
+# Colonnes disponibles non exportées :
+#   CreatedDateTime  : date de création de la politique
+#   ModifiedDateTime : date de dernière modification
+$ParEtatExport = $Policies |
+    Select-Object Id, DisplayName, State,
+        @{N="EtatLabel"; E={
+            switch ($_.State) {
+                "enabled"                           { "Actif" }
+                "enabledForReportingButNotEnforced" { "Report-Only" }
+                "disabled"                          { "Désactivé" }
+                default                             { $_.State }
+            }
+        }}
+
+$ParEtatExport | Export-Csv `
+    -Path "$ExportPath\CA_ParEtat_$Timestamp.csv" `
+    -Encoding UTF8 -NoTypeInformation
+Write-Host "-> Détail par état : $($ParEtatExport.Count) ligne(s) — CA_ParEtat_$Timestamp.csv" -ForegroundColor Green
+
+Write-Host "-> Export terminé dans : $ExportPath`n" -ForegroundColor Green
+
+# ========================================================================================
 # NETTOYAGE MÉMOIRE
 # ========================================================================================
-Remove-Variable Scopes, Policies, Enabled, ReportOnly, Disabled `
-    -ErrorAction SilentlyContinue
+Remove-Variable Scopes, Policies, Enabled, ReportOnly, Disabled,
+                ExportPath, Timestamp, InventaireExport, ParEtatExport `
+                -ErrorAction SilentlyContinue
 
 # ========================================================================================
 # FERMETURE — RESET DE SESSION TOTAL
