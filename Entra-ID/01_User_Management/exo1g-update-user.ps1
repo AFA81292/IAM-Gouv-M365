@@ -62,7 +62,7 @@ $TargetUPN = "shepard@0n4mg.onmicrosoft.com"
 $NewDepartment    = "N7-SpecOps"
 $NewJobTitle      = "Commander"
 $NewUsageLocation = "FR"
-$NewManagerUPN    = "anderson@0n4mg.onmicrosoft.com"
+$NewManagerUPN    = "liara@0n4mg.onmicrosoft.com"
 
 Write-Host "-> Compte cible   : $TargetUPN" -ForegroundColor Green
 Write-Host "-> Département    : $NewDepartment" -ForegroundColor Green
