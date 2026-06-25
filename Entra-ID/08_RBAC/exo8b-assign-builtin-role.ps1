@@ -196,7 +196,7 @@ Write-Host "6. Vérification post-assignation..." -ForegroundColor Cyan
 # REX : la propagation Graph post-création n'est pas instantanée.
 # On attend 15 secondes avant de relire — évite un faux négatif immédiat.
 # En production, sur un tenant à forte charge, augmenter à 30 secondes.
-Start-Sleep -Seconds 15
+Start-Sleep -Seconds 30
 
 $CheckAssignment = Get-MgRoleManagementDirectoryRoleAssignment -All |
     Where-Object {
