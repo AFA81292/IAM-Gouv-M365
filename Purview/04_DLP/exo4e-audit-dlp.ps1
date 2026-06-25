@@ -19,9 +19,15 @@
 #   3. Affiche la répartition par mode (Test vs Enable)
 #   4. Liste les règles associées à chaque policy — détecte les policies orphelines
 #   5. Affiche un résumé chiffré
-#   6. Ferme proprement toutes les sessions
+#   6. Exporte trois CSV horodatés (policies, règles, orphelines)
+#   7. Ferme proprement toutes les sessions
 #
 # Note : ce script est en lecture seule — aucune modification du tenant.
+#
+# Fichiers CSV générés :
+#   DLP_Policies_YYYYMMDD_HHmmss.csv        — inventaire des policies (mode, workloads)
+#   DLP_Regles_YYYYMMDD_HHmmss.csv          — règles par policy (statut, blocage, scope)
+#   DLP_PoliciesOrphelines_YYYYMMDD_HHmmss.csv — policies sans aucune règle associée
 #
 # Module requis : ExchangeOnlineManagement
 # Connexion     : Connect-IPPSSession
@@ -96,6 +102,12 @@ Write-Host "3. Règles par policy..." -ForegroundColor Cyan
 # Cas concret rencontré en 4c : la création de la règle a échoué après celle de la policy,
 # laissant une policy orpheline qui consomme une entrée dans le tenant sans rien faire.
 # Ce scan permet de les identifier et de les nettoyer.
+#
+# Les collections $RegleRows et $OrphelineRows sont alimentées dans cette boucle unique —
+# pas de second appel API pour le comptage des orphelines dans le résumé.
+$RegleRows     = @()
+$OrphelineRows = @()
+
 foreach ($Policy in $AllPolicies) {
     $Rules = Get-DlpComplianceRule -Policy $Policy.Name -ErrorAction SilentlyContinue
 
@@ -104,6 +116,15 @@ foreach ($Policy in $AllPolicies) {
     if (-not $Rules) {
         Write-Host "   ATTENTION : aucune règle associée — policy orpheline." -ForegroundColor Red
         Write-Host "   Nettoyage : Remove-DlpCompliancePolicy -Identity '$($Policy.Name)' -Confirm:`$false" -ForegroundColor Yellow
+
+        $OrphelineRows += [PSCustomObject]@{
+            PolicyNom  = $Policy.Name
+            PolicyMode = $Policy.Mode
+            Enabled    = $Policy.Enabled
+            SharePoint = if ($Policy.SharePointLocation) { "Oui" } else { "-" }
+            OneDrive   = if ($Policy.OneDriveLocation)   { "Oui" } else { "-" }
+            Exchange   = if ($Policy.ExchangeLocation)   { "Oui" } else { "-" }
+        }
         continue
     }
 
@@ -113,6 +134,31 @@ foreach ($Policy in $AllPolicies) {
     #   BlockAccessScope → "PerUser" (seul le contrevenant) ou "All" (tout le monde bloqué)
     $Rules | Select-Object Name, Disabled, BlockAccess, BlockAccessScope |
         Format-Table -AutoSize
+
+    foreach ($Rule in $Rules) {
+        $RegleRows += [PSCustomObject]@{
+            PolicyNom        = $Policy.Name
+            PolicyMode       = $Policy.Mode
+            RegleNom         = $Rule.Name
+            # Disabled : $true = règle muette même si la policy est active.
+            # Une policy Enable avec toutes ses règles Disabled = policy inopérante en pratique.
+            Disabled         = $Rule.Disabled
+            # BlockAccess : $true = une action de blocage est configurée sur la règle.
+            # N'est effectif que si la policy est en mode Enable — ignoré en mode Test.
+            BlockAccess      = $Rule.BlockAccess
+            # BlockAccessScope : portée du blocage.
+            #   "PerUser" = seul l'auteur de la violation est bloqué (défaut).
+            #   "All"     = tout accès au document est bloqué pour tous les utilisateurs.
+            BlockAccessScope = $Rule.BlockAccessScope
+            # Colonnes disponibles non exportées :
+            #   ContentContainsSensitiveInformation : SITs déclencheurs de la règle
+            #     → ($Rule.ContentContainsSensitiveInformation | ConvertTo-Json -Compress -Depth 3)
+            #   NotifyUser : destinataires des notifications DLP
+            #     → $Rule.NotifyUser -join "|"
+            #   EncryptRMSTemplate : template de chiffrement OME si action combinée
+            #     → $Rule.EncryptRMSTemplate
+        }
+    }
 }
 
 # ========================================================================================
@@ -120,26 +166,86 @@ foreach ($Policy in $AllPolicies) {
 # ========================================================================================
 Write-Host "`n=== RÉSUMÉ ===" -ForegroundColor Magenta
 
-# Deuxième passage sur Get-DlpComplianceRule pour compter les orphelines dans le résumé.
-# Inévitable : on ne peut pas stocker les résultats du foreach précédent proprement
-# sans complexifier le script — acceptable sur un tenant dev avec peu de policies.
-$OrphanCount = ($AllPolicies | Where-Object {
-    -not (Get-DlpComplianceRule -Policy $_.Name -ErrorAction SilentlyContinue)
-}).Count
-
 [PSCustomObject]@{
     TotalPolicies      = $AllPolicies.Count
-    EnModeTest         = ($AllPolicies | Where-Object { $_.Mode -eq "TestWithNotifications" }).Count
-    EnModeEnable       = ($AllPolicies | Where-Object { $_.Mode -eq "Enable" }).Count
+    EnModeTest         = ($AllPolicies | Where-Object { $_.Mode -eq "TestWithNotifications"    }).Count
+    EnModeEnable       = ($AllPolicies | Where-Object { $_.Mode -eq "Enable"                   }).Count
     EnModeSilencieux   = ($AllPolicies | Where-Object { $_.Mode -eq "TestWithoutNotifications" }).Count
-    PoliciesOrphelines = $OrphanCount
+    PoliciesOrphelines = $OrphelineRows.Count
+    TotalRegles        = $RegleRows.Count
     Scope              = "Lecture seule — aucune modification du tenant"
 } | Format-List
 
 # ========================================================================================
+# EXPORT CSV
+# ========================================================================================
+Write-Host "Export CSV en cours..." -ForegroundColor Cyan
+
+# EN LABO / Local :
+$ExportPath = "D:\Documents\ScriptsPowerShell\Exports\"
+# EN PRODUCTION :
+# $ExportPath = "$PSScriptRoot\Exports\"
+
+New-Item -ItemType Directory -Force -Path $ExportPath | Out-Null
+$Timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+
+# --- CSV 1 : Inventaire des policies ---
+# Colonnes exportées : Name, Mode, Enabled, SharePoint, OneDrive, Exchange
+# Mode    : "TestWithNotifications" / "Enable" / "TestWithoutNotifications"
+#           — colonne de triage principale en audit : toute policy Enable mérite vérification.
+# Enabled : $true/$false — une policy Enabled:$false est désactivée indépendamment du Mode.
+# Colonnes disponibles non exportées :
+#   TeamsLocation      : couverture Teams — appeler via $_.TeamsLocation
+#   EndpointDlpEnabled : DLP endpoint activé (Defender for Endpoint requis)
+#                        appeler via $_.EndpointDlpEnabled
+#   WhenCreated / WhenChanged : traçabilité — appeler via $_.WhenCreated, $_.WhenChanged
+$AllPolicies | Select-Object Name, Mode, Enabled,
+    @{ N = "SharePoint"; E = { if ($_.SharePointLocation) { "Oui" } else { "-" } } },
+    @{ N = "OneDrive";   E = { if ($_.OneDriveLocation)   { "Oui" } else { "-" } } },
+    @{ N = "Exchange";   E = { if ($_.ExchangeLocation)   { "Oui" } else { "-" } } } |
+    Export-Csv `
+        -Path "$ExportPath\DLP_Policies_$Timestamp.csv" `
+        -Encoding UTF8 -NoTypeInformation
+Write-Host "-> Policies : $($AllPolicies.Count) ligne(s) — DLP_Policies_$Timestamp.csv" -ForegroundColor Green
+
+# --- CSV 2 : Règles par policy ---
+# Colonnes exportées : PolicyNom, PolicyMode, RegleNom, Disabled, BlockAccess, BlockAccessScope
+# Cas d'usage principal : identifier les règles Disabled:$true sur une policy Enable
+# (policy active en apparence, règle muette en pratique — piège classique en audit).
+# Colonnes disponibles non exportées (commentées inline dans la boucle étape 3) :
+#   ContentContainsSensitiveInformation (JSON), NotifyUser, EncryptRMSTemplate
+if ($RegleRows.Count -gt 0) {
+    $RegleRows | Export-Csv `
+        -Path "$ExportPath\DLP_Regles_$Timestamp.csv" `
+        -Encoding UTF8 -NoTypeInformation
+    Write-Host "-> Règles    : $($RegleRows.Count) ligne(s) — DLP_Regles_$Timestamp.csv" -ForegroundColor Green
+} else {
+    Write-Host "-> Règles    : aucune règle trouvée — pas d'export." -ForegroundColor Yellow
+}
+
+# --- CSV 3 : Policies orphelines ---
+# Colonnes exportées : PolicyNom, PolicyMode, Enabled, SharePoint, OneDrive, Exchange
+# Ce CSV est le livrable opérationnel de nettoyage : chaque ligne = une policy à supprimer
+# ou à compléter d'une règle. Sur un tenant dev propre après les exos 4a-4d,
+# ce fichier devrait être vide. S'il ne l'est pas → une création de règle a échoué.
+if ($OrphelineRows.Count -gt 0) {
+    $OrphelineRows | Export-Csv `
+        -Path "$ExportPath\DLP_PoliciesOrphelines_$Timestamp.csv" `
+        -Encoding UTF8 -NoTypeInformation
+    Write-Host "-> Orphelines : $($OrphelineRows.Count) ligne(s) — DLP_PoliciesOrphelines_$Timestamp.csv" -ForegroundColor Green
+} else {
+    Write-Host "-> Orphelines : aucune policy orpheline — pas d'export." -ForegroundColor Yellow
+}
+
+Write-Host "-> Export terminé dans : $ExportPath`n" -ForegroundColor Green
+
+# ========================================================================================
 # NETTOYAGE MÉMOIRE
 # ========================================================================================
-Remove-Variable AllPolicies, Policy, Rules, OrphanCount -ErrorAction SilentlyContinue
+Remove-Variable AllPolicies, Policy, Rules, Rule,
+                RegleRows, OrphelineRows,
+                ExportPath, Timestamp `
+                -ErrorAction SilentlyContinue
 
 # ========================================================================================
 # FERMETURE — RESET DE SESSION TOTAL
