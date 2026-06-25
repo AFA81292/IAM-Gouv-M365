@@ -1,5 +1,5 @@
 # ========================================================================================
-# Exercice 1a : Création d'un rôle personnalisé (Custom RBAC Role)
+# Exercice 8a : Création d'un rôle personnalisé (Custom RBAC Role)
 # ========================================================================================
 # Concept : Entra ID permet de créer des rôles RBAC granulaires en complément des
 # rôles built-in (Global Admin, User Admin, etc.). Un rôle custom définit exactement
