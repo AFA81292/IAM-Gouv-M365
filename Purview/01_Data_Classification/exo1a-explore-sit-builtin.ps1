@@ -1,5 +1,5 @@
 # ========================================================================================
-# Exercice 1a : Data Classification — Exploration des SIT built-in
+# Exercice 1a : Purview — Data Classification — Exploration des SIT built-in
 # ========================================================================================
 # Concept : Les Sensitive Information Types (SIT) sont les briques de base de la
 # classification dans Purview. Avant de créer ses propres SIT ou ses politiques DLP,
@@ -17,10 +17,17 @@
 #   2. Vue d'ensemble : total SIT, répartition built-in vs custom
 #   3. Filtrage par domaines métier (financier, identité FR, santé)
 #   4. Zoom sur un SIT spécifique (structure interne, niveau de confiance)
-#   5. Export CSV optionnel de tous les SIT disponibles
+#   5. Exporte l'inventaire complet et les filtres métier en CSV horodatés
 #   6. Ferme proprement toutes les sessions
 #
 # Note : ce script est en lecture seule — aucune modification du tenant.
+#
+# Fichiers CSV générés :
+#   SIT_InventaireComplet_YYYYMMDD_HHmmss.csv
+#   SIT_Financiers_YYYYMMDD_HHmmss.csv
+#   SIT_IdentiteFR_YYYYMMDD_HHmmss.csv
+#   SIT_Sante_YYYYMMDD_HHmmss.csv
+#   SIT_Custom_YYYYMMDD_HHmmss.csv
 #
 # Module requis : ExchangeOnlineManagement
 # Connexion     : Connect-IPPSSession (Security & Compliance PowerShell)
@@ -47,7 +54,6 @@ Connect-IPPSSession -UserPrincipalName GeptorAdmin@0n4mg.onmicrosoft.com
 # ÉTAPE 1 : Vue d'ensemble — tous les SIT disponibles
 # ========================================================================================
 Write-Host "1. Vue d'ensemble des SIT du tenant..." -ForegroundColor Cyan
-Start-Sleep -Seconds 30
 
 # Get-DlpSensitiveInformationType retourne l'ensemble des SIT disponibles sur le tenant :
 # built-in Microsoft + custom créés par les admins.
@@ -74,7 +80,6 @@ Write-Host "2. Filtrage par domaine métier..." -ForegroundColor Cyan
 
 # En mission, on cherche rarement "tous les SIT" — on cherche ce qui couvre
 # un périmètre donné. Le filtre -match accepte les regex : "|" = OU logique.
-# Exemples de périmètres utiles pour une mission IAM/Purview en contexte FR.
 
 # Données financières — CB, IBAN, SWIFT, comptes bancaires
 $Financial = $AllSIT | Where-Object { $_.Name -match "Credit|Bank|IBAN|SWIFT|Financial" }
@@ -100,12 +105,10 @@ Write-Host "3. Détail d'un SIT cible : 'France National ID Card (CNI)'..." -For
 # savoir ce que Purview détecte réellement — et avec quel niveau de confiance.
 #
 # Champs clés à connaître :
-#   RecommendedConfidence → seuil de confiance recommandé par Microsoft pour déclencher
-#                           une règle DLP. En dessous : risque de faux positifs élevé.
+#   RecommendedConfidence → seuil recommandé par Microsoft pour déclencher une règle DLP.
+#                           En dessous : risque de faux positifs élevé.
 #   MinCount / MaxCount   → fourchette d'occurrences pour le déclenchement.
-#                           MinCount = 1 : une seule occurrence suffit.
 #   SupportedLanguages    → locales couvertes par les patterns regex du SIT.
-#                           Un SIT "France" sans "fr-FR" serait suspect.
 $TargetSIT = Get-DlpSensitiveInformationType -Identity "France National ID Card (CNI)" `
     -ErrorAction SilentlyContinue
 
@@ -126,42 +129,105 @@ if ($TargetSIT) {
 }
 
 # ========================================================================================
-# ÉTAPE 4 : Export CSV optionnel
-# ========================================================================================
-Write-Host "`n4. Export CSV optionnel..." -ForegroundColor Cyan
-
-# Utile pour avoir une référence locale de tous les SIT disponibles — pratique pour
-# préparer une réunion de cadrage DLP ou vérifier la couverture d'un périmètre métier
-# sans repasser par PowerShell à chaque fois.
-#
-# [Environment]::GetFolderPath("Desktop") résout le chemin du bureau de manière
-# universelle — fonctionne quel que soit le profil utilisateur ou la lettre de lecteur.
-$ExportPath = [Environment]::GetFolderPath("Desktop") + "\SIT-Audit-$(Get-Date -Format 'yyyyMMdd').csv"
-
-$AllSIT | Select-Object Name, Publisher, RecommendedConfidence, MinCount, MaxCount |
-    Export-Csv -Path $ExportPath -NoTypeInformation -Encoding UTF8
-
-Write-Host "-> Export disponible : $ExportPath" -ForegroundColor Green
-
-# ========================================================================================
 # RÉSUMÉ
 # ========================================================================================
 Write-Host "`n=== RÉSUMÉ ===" -ForegroundColor Magenta
 [PSCustomObject]@{
-    TotalSIT        = $AllSIT.Count
+    TotalSIT         = $AllSIT.Count
     BuiltInMicrosoft = $BuiltIn.Count
-    CustomAdmin     = $Custom.Count
-    SITFinanciers   = $Financial.Count
-    SITIdentitéFR   = $Identity.Count
-    SITSanté        = $Health.Count
-    ExportCSV       = $ExportPath
+    CustomAdmin      = $Custom.Count
+    SITFinanciers    = $Financial.Count
+    SITIdentitéFR    = $Identity.Count
+    SITSanté         = $Health.Count
 } | Format-List
+
+# ========================================================================================
+# EXPORT CSV
+# ========================================================================================
+Write-Host "Export CSV en cours..." -ForegroundColor Cyan
+
+# EN LABO / Local :
+$ExportPath = "D:\Documents\ScriptsPowerShell\Exports\"
+# EN PRODUCTION :
+# $ExportPath = "$PSScriptRoot\Exports\"
+
+New-Item -ItemType Directory -Force -Path $ExportPath | Out-Null
+$Timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+
+# --- CSV 1 : Inventaire complet ---
+# Colonnes exportées : Name, Publisher, RecommendedConfidence, MinCount, MaxCount
+# Colonnes disponibles non exportées :
+#   Description          : description textuelle du SIT (souvent longue — peut alourdir le CSV)
+#   SupportedLanguages   : locales couvertes — appeler via $_.SupportedLanguages -join "|"
+#   RulePackage          : nom du package XML contenant le SIT (utile pour les custom)
+#   Guid                 : identifiant unique stable du SIT — à utiliser dans les DLP Rules
+$InventaireExport = $AllSIT |
+    Select-Object Name, Publisher, RecommendedConfidence, MinCount, MaxCount,
+        @{N="Guid"; E={ $_.Guid }},
+        @{N="SupportedLanguages"; E={ $_.SupportedLanguages -join "|" }}
+
+$InventaireExport | Export-Csv `
+    -Path "$ExportPath\SIT_InventaireComplet_$Timestamp.csv" `
+    -Encoding UTF8 -NoTypeInformation
+Write-Host "-> Inventaire complet : $($InventaireExport.Count) ligne(s) — SIT_InventaireComplet_$Timestamp.csv" -ForegroundColor Green
+
+# --- CSV 2 : SIT financiers ---
+# Colonnes exportées : Name, Publisher, RecommendedConfidence, MinCount, MaxCount
+# Filtre regex : Credit|Bank|IBAN|SWIFT|Financial
+# Cas d'usage : cadrage DLP pour une mission banque/finance — identifier la couverture
+# native avant de créer des SIT custom pour les numéros de compte internes.
+$Financial | Select-Object Name, Publisher, RecommendedConfidence, MinCount, MaxCount |
+    Export-Csv `
+        -Path "$ExportPath\SIT_Financiers_$Timestamp.csv" `
+        -Encoding UTF8 -NoTypeInformation
+Write-Host "-> Financiers : $($Financial.Count) ligne(s) — SIT_Financiers_$Timestamp.csv" -ForegroundColor Green
+
+# --- CSV 3 : SIT identité / données personnelles France ---
+# Colonnes exportées : Name, Publisher, RecommendedConfidence, MinCount, MaxCount
+# Filtre regex : France|French|Passport|National|Social
+# Cas d'usage : RGPD / conformité CNIL — vérifier si Purview couvre CNI, NIR, passeport FR.
+$Identity | Select-Object Name, Publisher, RecommendedConfidence, MinCount, MaxCount |
+    Export-Csv `
+        -Path "$ExportPath\SIT_IdentiteFR_$Timestamp.csv" `
+        -Encoding UTF8 -NoTypeInformation
+Write-Host "-> Identité FR : $($Identity.Count) ligne(s) — SIT_IdentiteFR_$Timestamp.csv" -ForegroundColor Green
+
+# --- CSV 4 : SIT santé ---
+# Colonnes exportées : Name, Publisher, RecommendedConfidence, MinCount, MaxCount
+# Filtre regex : Health|Medical|Drug|ICD
+# Cas d'usage : mission secteur santé ou assurance — vérifier la couverture HDS avant
+# de créer des SIT custom pour les numéros de dossier patient ou codes ICD.
+$Health | Select-Object Name, Publisher, RecommendedConfidence, MinCount, MaxCount |
+    Export-Csv `
+        -Path "$ExportPath\SIT_Sante_$Timestamp.csv" `
+        -Encoding UTF8 -NoTypeInformation
+Write-Host "-> Santé : $($Health.Count) ligne(s) — SIT_Sante_$Timestamp.csv" -ForegroundColor Green
+
+# --- CSV 5 : SIT custom uniquement ---
+# Colonnes exportées : Name, Publisher, RecommendedConfidence, MinCount, MaxCount, Guid
+# Ce CSV est le plus utile en début de mission : il révèle ce que les équipes précédentes
+# ont déjà configuré en custom — évite de recréer des SIT qui existent déjà.
+# Sur un tenant de dev vierge, ce fichier sera vide (Custom.Count = 0).
+if ($Custom.Count -gt 0) {
+    $Custom |
+        Select-Object Name, Publisher, RecommendedConfidence, MinCount, MaxCount,
+            @{N="Guid"; E={ $_.Guid }} |
+        Export-Csv `
+            -Path "$ExportPath\SIT_Custom_$Timestamp.csv" `
+            -Encoding UTF8 -NoTypeInformation
+    Write-Host "-> Custom : $($Custom.Count) ligne(s) — SIT_Custom_$Timestamp.csv" -ForegroundColor Green
+} else {
+    Write-Host "-> Custom : aucun SIT custom trouvé — pas d'export." -ForegroundColor Yellow
+}
+
+Write-Host "-> Export terminé dans : $ExportPath`n" -ForegroundColor Green
 
 # ========================================================================================
 # NETTOYAGE MÉMOIRE
 # ========================================================================================
 Remove-Variable AllSIT, BuiltIn, Custom, Financial, Identity, Health,
-                TargetSIT, ExportPath `
+                TargetSIT, InventaireExport,
+                ExportPath, Timestamp `
                 -ErrorAction SilentlyContinue
 
 # ========================================================================================
