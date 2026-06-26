@@ -109,7 +109,7 @@ function Resolve-ScopeLabel {
     if ($ScopeId -eq "/") { return "Tenant-wide" }
     $AUId     = $ScopeId -replace "/administrativeUnits/", ""
     $MatchedAU = $AUCache | Where-Object { $_.Id -eq $AUId } | Select-Object -First 1
-    return if ($MatchedAU) { "AU : $($MatchedAU.DisplayName)" } else { "AU : $AUId" }
+    if ($MatchedAU) { return "AU : $($MatchedAU.DisplayName)" } else { return "AU : $AUId" }
 }
 
 # Helper : résolution du type de principal (User / Group / ServicePrincipal / Inconnu)
