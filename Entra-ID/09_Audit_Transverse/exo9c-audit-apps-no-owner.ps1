@@ -198,7 +198,7 @@ $InactiveRows = @()
 foreach ($SP in $NonMicrosoftSPs) {
     # Proxy inactivité : créée avant le seuil = potentiellement inutilisée
     # Sur tenant de dev, toutes les apps anciennes apparaîtront — normal.
-    if ($SP.CreatedDateTime -lt $InactivityThreshold) {
+    if ([DateTime]$SP.CreatedDateTime -lt $InactivityThreshold) {
 
         $Owners = if ($OwnerCache.ContainsKey($SP.Id)) {
             $OwnerCache[$SP.Id]
@@ -212,7 +212,7 @@ foreach ($SP in $NonMicrosoftSPs) {
             $OwnerNames += if ($OwnerUser) { $OwnerUser.DisplayName } else { $Owner.Id }
         }
 
-        $JoursDepuisCreation = [math]::Round(((Get-Date) - $SP.CreatedDateTime).TotalDays)
+        $JoursDepuisCreation = [math]::Round(((Get-Date) - [DateTime]$SP.CreatedDateTime).TotalDays)
 
         $InactiveRows += [PSCustomObject]@{
             DisplayName          = $SP.DisplayName
@@ -259,9 +259,9 @@ foreach ($AppReg in $AllAppRegs) {
     # Vérification des secrets
     foreach ($Secret in $AppReg.PasswordCredentials) {
         if ($null -eq $Secret.EndDateTime) { continue }
-        if ($Secret.EndDateTime -gt $ExpirationThreshold) { continue }
+        if ([DateTime]$Secret.EndDateTime -gt $ExpirationThreshold) { continue }
 
-        $JoursRestants = [math]::Round(($Secret.EndDateTime - (Get-Date)).TotalDays)
+        $JoursRestants = [math]::Round(([DateTime]$Secret.EndDateTime - (Get-Date)).TotalDays)
 
         # Résolution des owners depuis le SP correspondant
         $CorrespondingSP = $AllSPs | Where-Object { $_.AppId -eq $AppReg.AppId } | Select-Object -First 1
@@ -296,9 +296,9 @@ foreach ($AppReg in $AllAppRegs) {
     # Vérification des certificats
     foreach ($Cert in $AppReg.KeyCredentials) {
         if ($null -eq $Cert.EndDateTime) { continue }
-        if ($Cert.EndDateTime -gt $ExpirationThreshold) { continue }
+        if ([DateTime]$Cert.EndDateTime -gt $ExpirationThreshold) { continue }
 
-        $JoursRestants = [math]::Round(($Cert.EndDateTime - (Get-Date)).TotalDays)
+        $JoursRestants = [math]::Round(([DateTime]$Cert.EndDateTime - (Get-Date)).TotalDays)
 
         $CorrespondingSP = $AllSPs | Where-Object { $_.AppId -eq $AppReg.AppId } | Select-Object -First 1
         $SPOwners = if ($CorrespondingSP -and $OwnerCache.ContainsKey($CorrespondingSP.Id)) {
