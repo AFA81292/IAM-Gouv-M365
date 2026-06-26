@@ -196,9 +196,29 @@ Write-Host "4. Audit des apps sans activité récente (> $InactivityDays jours).
 $InactiveRows = @()
 
 foreach ($SP in $NonMicrosoftSPs) {
-    # Proxy inactivité : créée avant le seuil = potentiellement inutilisée
-    # Sur tenant de dev, toutes les apps anciennes apparaîtront — normal.
-    if ([DateTime]$SP.CreatedDateTime -lt $InactivityThreshold) {
+    # DÉCOUVERTE TECHNIQUE — dates Graph et PowerShell : trois pièges distincts
+    #
+    # PIÈGE 1 : Graph retourne les dates en string ISO 8601, pas en [DateTime].
+    #   Conséquence : une soustraction arithmétique "date - date" explose avec
+    #   MethodException "Cannot find an overload for op_Subtraction" si on ne caste pas.
+    #   PowerShell 7 fait parfois le cast implicitement sur les comparaisons -gt/-lt,
+    #   mais JAMAIS sur les soustractions. Règle : tout $objet.XxxDateTime utilisé
+    #   dans un calcul → [DateTime]$objet.XxxDateTime.
+    #   Exemple ligne 215 : (Get-Date) - [DateTime]$SP.CreatedDateTime
+    #
+    # PIÈGE 2 : CreatedDateTime peut être $null sur certains types de SP.
+    #   Les Managed Identities (identités managées Azure pour VMs, Function Apps...)
+    #   ne renseignent pas toujours CreatedDateTime — le champ revient $null.
+    #   Caster $null en [DateTime] lève InvalidArgument "Cannot convert null to System.DateTime".
+    #   Solution : garde-fou $SP.CreatedDateTime -and [DateTime]$SP.CreatedDateTime
+    #   Le -and court-circuite : si $null, PowerShell n'évalue pas le cast.
+    #
+    # PIÈGE 3 (rappel général, non reproductible ici) : return if (...) est invalide en PS.
+    #   PowerShell n'accepte pas "return if (condition) { X } else { Y }".
+    #   Syntaxe correcte : if (condition) { return X } else { return Y }
+    #   Ce pattern C#/Python lève "The term 'if' is not recognized as a cmdlet".
+    #   Voir correction fonction Resolve-ScopeLabel dans exo8f.
+    if ($SP.CreatedDateTime -and [DateTime]$SP.CreatedDateTime -lt $InactivityThreshold) {
 
         $Owners = if ($OwnerCache.ContainsKey($SP.Id)) {
             $OwnerCache[$SP.Id]
@@ -212,6 +232,9 @@ foreach ($SP in $NonMicrosoftSPs) {
             $OwnerNames += if ($OwnerUser) { $OwnerUser.DisplayName } else { $Owner.Id }
         }
 
+        # Cast [DateTime] obligatoire — voir PIÈGE 1 ci-dessus.
+        # Sans le cast : MethodException "op_Subtraction" car Graph retourne une string.
+        # Le null est déjà exclu par le garde-fou du if parent (PIÈGE 2).
         $JoursDepuisCreation = [math]::Round(((Get-Date) - [DateTime]$SP.CreatedDateTime).TotalDays)
 
         $InactiveRows += [PSCustomObject]@{
