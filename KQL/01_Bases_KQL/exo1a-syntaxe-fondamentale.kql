@@ -162,4 +162,3 @@ SigninLogs
 // | where ResultType != 0
 // | summarize count() by ResultType, ResultDescription
 // | sort by count_ desc
-
