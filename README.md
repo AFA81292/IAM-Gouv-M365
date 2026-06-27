@@ -13,8 +13,10 @@ Stack & Méthodologie :
 * Objectif global : Démontrer une capacité à comprendre et à manipuler les briques techniques Entra ID et Purview tout en les reliant aux enjeux de gouvernance opérationnelle et de conformité.
 
 
-##  Structure du dépôt
+## Structure du dépôt
+
 * **[Entra-ID](./Entra-ID/)** : Gestion des identités, rôles et annuaire (SC-300).
 * **[Purview](./Purview/)** : Protection de l'information, DLP, rétention et audit (SC-401).
+* **[KQL](./KQL/)** : Requêtes Sentinel & Log Analytics — audit des identités, détection de menaces et gouvernance M365 (SC-300 / SC-401).
 
 
