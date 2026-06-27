@@ -13,12 +13,13 @@ Aucune souscription Azure requise — les données de démonstration couvrent l'
 
 | Table | Contenu | Chapitres |
 |-------|---------|-----------|
-| `SigninLogs` | Connexions interactives Entra ID | 02 |
+| `SigninLogs` | Connexions interactives Entra ID | 01, 02, 05 |
 | `AADNonInteractiveUserSignInLogs` | Connexions non interactives (apps, tokens) | 02 |
-| `AuditLogs` | Modifications d'objets Entra (users, groupes, rôles) | 03 |
-| `OfficeActivity` | Activité SharePoint, Exchange, Teams | 04 |
+| `AADRiskyUsers` | Utilisateurs à risque détectés par Entra ID Protection | 02, 03 |
+| `AADUserRiskEvents` | Événements de risque individuels (impossible travel, leaked creds...) | 02, 03 |
+| `AuditLogs` | Modifications d'objets Entra (users, groupes, rôles) | 03, 05 |
+| `OfficeActivity` | Activité SharePoint, Exchange, Teams | 04, 05 |
 | `CloudAppEvents` | Événements Defender for Cloud Apps | 04 |
-| `AlertInfo` / `AlertEvidence` | Alertes Defender | 04 |
 
 ## Index des Exercices (1 fichier = 1 exo)
 
@@ -94,6 +95,14 @@ SigninLogs | summarize NbConnexions = count() by bin(TimeGenerated, 1h) | render
   * Objectif : Identifier les attaques par force brute — seuil d'échecs consécutifs sur une courte fenêtre temporelle.
   * Table : `SigninLogs`
 
+* [Exo 2f : Connexions non interactives suspectes](./02_SignIn_Logs/exo2f-connexions-non-interactives.kql)
+  * Objectif : Auditer les connexions silencieuses — apps et tokens qui se reconnectent sans MFA en arrière-plan, écarts avec les connexions interactives.
+  * Table : `AADNonInteractiveUserSignInLogs`
+
+* [Exo 2g : Utilisateurs à risque — Entra ID Protection](./02_SignIn_Logs/exo2g-utilisateurs-a-risque.kql)
+  * Objectif : Identifier les utilisateurs signalés à risque par Entra ID Protection — leaked credentials, impossible travel, connexions anonymes.
+  * Tables : `AADRiskyUsers`, `AADUserRiskEvents`
+
 <details>
 <summary>Commandes utiles en une ligne — SignIn Logs</summary>
 
@@ -153,6 +162,10 @@ SigninLogs | project TimeGenerated, UserPrincipalName, ConditionalAccessPolicies
 * [Exo 3d : Activations PIM](./03_Audit_Logs_Entra/exo3d-activations-pim.kql)
   * Objectif : Tracer les activations de rôles via PIM — qui a activé quel rôle, avec quelle justification, pendant combien de temps.
   * Table : `AuditLogs`
+
+* [Exo 3e : Événements de risque Entra ID Protection](./03_Audit_Logs_Entra/exo3e-evenements-risque.kql)
+  * Objectif : Analyser les événements de risque individuels — impossible travel, leaked credentials, IP anonymes — et croiser avec les utilisateurs à risque actifs.
+  * Tables : `AADRiskyUsers`, `AADUserRiskEvents`
 
 <details>
 <summary>Commandes utiles en une ligne — Audit Logs Entra</summary>
