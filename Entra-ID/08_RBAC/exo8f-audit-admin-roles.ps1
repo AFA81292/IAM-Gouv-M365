@@ -85,6 +85,26 @@ Write-Host "-> Users          : $($AllUsers.Count)" -ForegroundColor Green
 Write-Host "-> Groupes        : $($AllGroups.Count)" -ForegroundColor Green
 Write-Host "-> SPs            : $($AllServicePrincipals.Count)`n" -ForegroundColor Green
 
+# ────────────────────────────────────────────────────────────────────────────────────────
+# HASHTABLES DE LOOKUP — correction O(n²) → O(n)
+# Construites une seule fois ici, réutilisées dans toutes les étapes suivantes.
+# Sans hashtable : $AllUsers | Where-Object { $_.Id -eq $Id } = scan complet à chaque appel.
+# Avec hashtable  : $UsersById[$Id] = lookup O(1), indépendant de la taille de la collection.
+# Sur 50 000 users avec 500 assignations : la différence est de plusieurs minutes.
+# ────────────────────────────────────────────────────────────────────────────────────────
+$UsersById      = @{}; $AllUsers            | ForEach-Object { $UsersById[$_.Id]      = $_ }
+$GroupsById     = @{}; $AllGroups           | ForEach-Object { $GroupsById[$_.Id]     = $_ }
+$RoleDefsById   = @{}; $AllRoleDefinitions  | ForEach-Object { $RoleDefsById[$_.Id]   = $_ }
+$SchedulesById  = @{}; $AllSchedules        | ForEach-Object { $SchedulesById[$_.Id]  = $_ }
+$SPsById        = @{}; $AllServicePrincipals| ForEach-Object { $SPsById[$_.Id]        = $_ }
+$AUsById        = @{}; $AllAUs              | ForEach-Object { $AUsById[$_.Id]        = $_ }
+
+# Index inversé rôle → assignations (pour l'étape 8 : rôles sans détenteur)
+$AssignmentsByRoleId   = @{}
+$EligibilitiesByRoleId = @{}
+foreach ($A in $AllAssignments)   { if (-not $AssignmentsByRoleId[$A.RoleDefinitionId])   { $AssignmentsByRoleId[$A.RoleDefinitionId]   = @() }; $AssignmentsByRoleId[$A.RoleDefinitionId]   += $A }
+foreach ($E in $AllEligibilities) { if (-not $EligibilitiesByRoleId[$E.RoleDefinitionId]) { $EligibilitiesByRoleId[$E.RoleDefinitionId] = @() }; $EligibilitiesByRoleId[$E.RoleDefinitionId] += $E }
+
 # Listes de référence réutilisées dans toutes les étapes suivantes
 $SensitiveRoleNames = @(
     "Global Administrator",
@@ -104,20 +124,22 @@ $BreakGlassPatterns = @("breakglass", "emergency", "urgence", "bg-", "brk")
 # $BreakGlassPatterns = @("BG-", "EMRG-", "SVC-URGENCE")
 
 # Helper : résolution du DirectoryScopeId en label lisible
+# Utilise $AUsById (hashtable) au lieu de Where-Object sur $AllAUs — O(1) au lieu de O(n)
 function Resolve-ScopeLabel {
-    param($ScopeId, $AUCache)
+    param($ScopeId, $AUIndex)
     if ($ScopeId -eq "/") { return "Tenant-wide" }
     $AUId     = $ScopeId -replace "/administrativeUnits/", ""
-    $MatchedAU = $AUCache | Where-Object { $_.Id -eq $AUId } | Select-Object -First 1
+    $MatchedAU = $AUIndex[$AUId]
     if ($MatchedAU) { return "AU : $($MatchedAU.DisplayName)" } else { return "AU : $AUId" }
 }
 
 # Helper : résolution du type de principal (User / Group / ServicePrincipal / Inconnu)
+# Utilise les hashtables $UsersById, $GroupsById, $SPsById — O(1) au lieu de O(n) × 3
 function Resolve-PrincipalType {
-    param($PrincipalId, $UserCache, $GroupCache, $SPCache)
-    if ($UserCache  | Where-Object { $_.Id -eq $PrincipalId }) { return "User" }
-    if ($GroupCache | Where-Object { $_.Id -eq $PrincipalId }) { return "Group" }
-    if ($SPCache    | Where-Object { $_.Id -eq $PrincipalId }) { return "ServicePrincipal" }
+    param($PrincipalId, $UserIndex, $GroupIndex, $SPIndex)
+    if ($UserIndex[$PrincipalId])  { return "User" }
+    if ($GroupIndex[$PrincipalId]) { return "Group" }
+    if ($SPIndex[$PrincipalId])    { return "ServicePrincipal" }
     return "Inconnu"
 }
 
@@ -143,15 +165,15 @@ foreach ($Assignment in $AllAssignments) {
     # On croise avec les schedules PIM pour détecter le type d'assignation.
     # Si l'assignation est dans les schedules avec AssignmentType "Activated" → c'est du PIM actif.
     # Si elle n'y est pas, ou AssignmentType "Assigned" → c'est une assignation directe permanente.
-    $Schedule = $AllSchedules | Where-Object { $_.Id -eq $Assignment.Id } | Select-Object -First 1
+    $Schedule = $SchedulesById[$Assignment.Id]
     if ($Schedule -and $Schedule.AssignmentType -eq "Activated") { continue }
 
-    $PrincipalType = Resolve-PrincipalType $Assignment.PrincipalId $AllUsers $AllGroups $AllServicePrincipals
+    $PrincipalType = Resolve-PrincipalType $Assignment.PrincipalId $UsersById $GroupsById $SPsById
     if ($PrincipalType -ne "User") { continue }   # Groupes → CSV 4 | SPs → CSV 5
 
-    $User    = $AllUsers | Where-Object { $_.Id -eq $Assignment.PrincipalId } | Select-Object -First 1
-    $RoleDef = $AllRoleDefinitions | Where-Object { $_.Id -eq $Assignment.RoleDefinitionId } | Select-Object -First 1
-    $Scope   = Resolve-ScopeLabel $Assignment.DirectoryScopeId $AllAUs
+    $User    = $UsersById[$Assignment.PrincipalId]
+    $RoleDef = $RoleDefsById[$Assignment.RoleDefinitionId]
+    $Scope   = Resolve-ScopeLabel $Assignment.DirectoryScopeId $AUsById
 
     $PermanentRows += [PSCustomObject]@{
         Utilisateur      = if ($User) { $User.DisplayName }      else { $Assignment.PrincipalId }
@@ -192,10 +214,10 @@ $PIMActiveRows = @()
 foreach ($Schedule in $AllSchedules) {
     if ($Schedule.AssignmentType -ne "Activated") { continue }
 
-    $PrincipalType = Resolve-PrincipalType $Schedule.PrincipalId $AllUsers $AllGroups $AllServicePrincipals
-    $User    = $AllUsers | Where-Object { $_.Id -eq $Schedule.PrincipalId } | Select-Object -First 1
-    $RoleDef = $AllRoleDefinitions | Where-Object { $_.Id -eq $Schedule.RoleDefinitionId } | Select-Object -First 1
-    $Scope   = Resolve-ScopeLabel $Schedule.DirectoryScopeId $AllAUs
+    $PrincipalType = Resolve-PrincipalType $Schedule.PrincipalId $UsersById $GroupsById $SPsById
+    $User    = $UsersById[$Schedule.PrincipalId]
+    $RoleDef = $RoleDefsById[$Schedule.RoleDefinitionId]
+    $Scope   = Resolve-ScopeLabel $Schedule.DirectoryScopeId $AUsById
 
     $PIMActiveRows += [PSCustomObject]@{
         Utilisateur      = if ($User) { $User.DisplayName }      else { $Schedule.PrincipalId }
@@ -236,10 +258,10 @@ Write-Host "4. Audit des éligibilités PIM (non activées)..." -ForegroundColor
 $PIMEligibleRows = @()
 
 foreach ($Eligibility in $AllEligibilities) {
-    $PrincipalType = Resolve-PrincipalType $Eligibility.PrincipalId $AllUsers $AllGroups $AllServicePrincipals
-    $User    = $AllUsers | Where-Object { $_.Id -eq $Eligibility.PrincipalId } | Select-Object -First 1
-    $RoleDef = $AllRoleDefinitions | Where-Object { $_.Id -eq $Eligibility.RoleDefinitionId } | Select-Object -First 1
-    $Scope   = Resolve-ScopeLabel $Eligibility.DirectoryScopeId $AllAUs
+    $PrincipalType = Resolve-PrincipalType $Eligibility.PrincipalId $UsersById $GroupsById $SPsById
+    $User    = $UsersById[$Eligibility.PrincipalId]
+    $RoleDef = $RoleDefsById[$Eligibility.RoleDefinitionId]
+    $Scope   = Resolve-ScopeLabel $Eligibility.DirectoryScopeId $AUsById
 
     $PIMEligibleRows += [PSCustomObject]@{
         Utilisateur      = if ($User) { $User.DisplayName }      else { $Eligibility.PrincipalId }
@@ -286,9 +308,9 @@ $GroupAssignments = $AllAssignments | Where-Object {
 }
 
 foreach ($Assignment in $GroupAssignments) {
-    $Group   = $AllGroups | Where-Object { $_.Id -eq $Assignment.PrincipalId } | Select-Object -First 1
-    $RoleDef = $AllRoleDefinitions | Where-Object { $_.Id -eq $Assignment.RoleDefinitionId } | Select-Object -First 1
-    $Scope   = Resolve-ScopeLabel $Assignment.DirectoryScopeId $AllAUs
+    $Group   = $GroupsById[$Assignment.PrincipalId]
+    $RoleDef = $RoleDefsById[$Assignment.RoleDefinitionId]
+    $Scope   = Resolve-ScopeLabel $Assignment.DirectoryScopeId $AUsById
 
     # Énumération des membres du groupe — un appel Graph par groupe assigné à un rôle.
     # Sur grands tenants : limiter aux groupes de rôles (souvent peu nombreux) est acceptable.
@@ -296,7 +318,7 @@ foreach ($Assignment in $GroupAssignments) {
 
     if ($Members) {
         foreach ($Member in $Members) {
-            $MemberUser = $AllUsers | Where-Object { $_.Id -eq $Member.Id } | Select-Object -First 1
+            $MemberUser = $UsersById[$Member.Id]
 
             $GroupRoleRows += [PSCustomObject]@{
                 NomGroupe        = if ($Group) { $Group.DisplayName } else { $Assignment.PrincipalId }
@@ -355,9 +377,9 @@ $SPAssignments = $AllAssignments | Where-Object {
 }
 
 foreach ($Assignment in $SPAssignments) {
-    $SP      = $AllServicePrincipals | Where-Object { $_.Id -eq $Assignment.PrincipalId } | Select-Object -First 1
-    $RoleDef = $AllRoleDefinitions | Where-Object { $_.Id -eq $Assignment.RoleDefinitionId } | Select-Object -First 1
-    $Scope   = Resolve-ScopeLabel $Assignment.DirectoryScopeId $AllAUs
+    $SP      = $SPsById[$Assignment.PrincipalId]
+    $RoleDef = $RoleDefsById[$Assignment.RoleDefinitionId]
+    $Scope   = Resolve-ScopeLabel $Assignment.DirectoryScopeId $AUsById
 
     $SPRoleRows += [PSCustomObject]@{
         NomApp           = if ($SP) { $SP.DisplayName } else { $Assignment.PrincipalId }
@@ -395,12 +417,13 @@ $CustomRoleRows = @()
 $CustomRoleDefs = $AllRoleDefinitions | Where-Object { $_.IsBuiltIn -eq $false }
 
 foreach ($CustomRole in $CustomRoleDefs) {
-    $Assignments = $AllAssignments | Where-Object { $_.RoleDefinitionId -eq $CustomRole.Id }
+    # Lookup index inversé O(1) — au lieu de Where-Object O(n) sur AllAssignments
+    $Assignments = $AssignmentsByRoleId[$CustomRole.Id]
 
     if ($Assignments.Count -gt 0) {
         foreach ($Assignment in $Assignments) {
-            $User  = $AllUsers | Where-Object { $_.Id -eq $Assignment.PrincipalId } | Select-Object -First 1
-            $Scope = Resolve-ScopeLabel $Assignment.DirectoryScopeId $AllAUs
+            $User  = $UsersById[$Assignment.PrincipalId]
+            $Scope = Resolve-ScopeLabel $Assignment.DirectoryScopeId $AUsById
 
             $CustomRoleRows += [PSCustomObject]@{
                 NomRole          = $CustomRole.DisplayName
@@ -451,8 +474,8 @@ $NoAssignmentRows = @()
 $BuiltInRoleDefs  = $AllRoleDefinitions | Where-Object { $_.IsBuiltIn -eq $true }
 
 foreach ($RoleDef in $BuiltInRoleDefs) {
-    $HasActive   = $AllAssignments   | Where-Object { $_.RoleDefinitionId -eq $RoleDef.Id }
-    $HasEligible = $AllEligibilities | Where-Object { $_.RoleDefinitionId -eq $RoleDef.Id }
+    $HasActive   = $AssignmentsByRoleId[$RoleDef.Id]
+    $HasEligible = $EligibilitiesByRoleId[$RoleDef.Id]
 
     if ($HasActive.Count -eq 0 -and $HasEligible.Count -eq 0) {
         $NoAssignmentRows += [PSCustomObject]@{
@@ -485,12 +508,12 @@ $ExpirationRows = @()
 
 # Contrôle sur les schedules PIM actifs
 foreach ($Schedule in $AllSchedules) {
-    $EndDate = $Schedule.ScheduleInfo.Expiration.EndDateTime
+    $EndDate = if ($Schedule.ScheduleInfo.Expiration.EndDateTime) { [DateTime]$Schedule.ScheduleInfo.Expiration.EndDateTime } else { $null }
     if ($null -eq $EndDate -or $EndDate -gt $ExpirationThreshold) { continue }
 
-    $User    = $AllUsers | Where-Object { $_.Id -eq $Schedule.PrincipalId } | Select-Object -First 1
-    $RoleDef = $AllRoleDefinitions | Where-Object { $_.Id -eq $Schedule.RoleDefinitionId } | Select-Object -First 1
-    $Scope   = Resolve-ScopeLabel $Schedule.DirectoryScopeId $AllAUs
+    $User    = $UsersById[$Schedule.PrincipalId]
+    $RoleDef = $RoleDefsById[$Schedule.RoleDefinitionId]
+    $Scope   = Resolve-ScopeLabel $Schedule.DirectoryScopeId $AUsById
 
     $ExpirationRows += [PSCustomObject]@{
         TypeAssignation  = "PIM Active"
@@ -507,12 +530,12 @@ foreach ($Schedule in $AllSchedules) {
 
 # Contrôle sur les éligibilités PIM
 foreach ($Eligibility in $AllEligibilities) {
-    $EndDate = $Eligibility.ScheduleInfo.Expiration.EndDateTime
+    $EndDate = if ($Eligibility.ScheduleInfo.Expiration.EndDateTime) { [DateTime]$Eligibility.ScheduleInfo.Expiration.EndDateTime } else { $null }
     if ($null -eq $EndDate -or $EndDate -gt $ExpirationThreshold) { continue }
 
-    $User    = $AllUsers | Where-Object { $_.Id -eq $Eligibility.PrincipalId } | Select-Object -First 1
-    $RoleDef = $AllRoleDefinitions | Where-Object { $_.Id -eq $Eligibility.RoleDefinitionId } | Select-Object -First 1
-    $Scope   = Resolve-ScopeLabel $Eligibility.DirectoryScopeId $AllAUs
+    $User    = $UsersById[$Eligibility.PrincipalId]
+    $RoleDef = $RoleDefsById[$Eligibility.RoleDefinitionId]
+    $Scope   = Resolve-ScopeLabel $Eligibility.DirectoryScopeId $AUsById
 
     $ExpirationRows += [PSCustomObject]@{
         TypeAssignation  = "PIM Eligible"
@@ -570,7 +593,7 @@ $BGUsersByName = $AllUsers | Where-Object {
 }
 
 # Détection par rôle Global Admin permanent (hors PIM — AssignmentType "Assigned")
-$GlobalAdminRoleId = ($AllRoleDefinitions | Where-Object { $_.DisplayName -eq "Global Administrator" }).Id
+$GlobalAdminRoleId = ($AllRoleDefinitions | Where-Object { $_.DisplayName -eq "Global Administrator" }).Id   # Where-Object acceptable ici : une seule fois, hors boucle
 $GlobalAdminPermanent = $AllSchedules | Where-Object {
     $_.RoleDefinitionId -eq $GlobalAdminRoleId -and $_.AssignmentType -eq "Assigned"
 }
@@ -579,16 +602,16 @@ $GlobalAdminPermanent = $AllSchedules | Where-Object {
 $BGCandidateIds = @()
 $BGCandidateIds += $BGUsersByName.Id
 $BGCandidateIds += ($GlobalAdminPermanent | ForEach-Object {
-    $AllUsers | Where-Object { $_.Id -eq $_.PrincipalId } | Select-Object -ExpandProperty Id
+    if ($UsersById[$_.PrincipalId]) { $UsersById[$_.PrincipalId].Id }
 })
 $BGCandidateIds = $BGCandidateIds | Sort-Object -Unique
 
 foreach ($BGId in $BGCandidateIds) {
-    $BGUser = $AllUsers | Where-Object { $_.Id -eq $BGId } | Select-Object -First 1
+    $BGUser = $UsersById[$BGId]
     if (-not $BGUser) { continue }
 
     # Vérification : est-il Global Admin permanent ?
-    $IsGlobalAdminPermanent = ($GlobalAdminPermanent |
+    $IsGlobalAdminPermanent = ($GlobalAdminPermanent |   # Liste courte — Where-Object acceptable
         Where-Object { $_.PrincipalId -eq $BGId }).Count -gt 0
 
     # Détecté par nom uniquement (pas forcément Global Admin) ?
@@ -605,7 +628,7 @@ foreach ($BGId in $BGCandidateIds) {
                                 } else { "Jamais connecté" }
         # Une dernière connexion récente sur un break glass est un signal d'alerte.
         # "Jamais connecté" est le comportement attendu pour un vrai compte d'urgence.
-        Alerte                = if ($BGUser.SignInActivity.LastSignInDateTime -gt (Get-Date).AddDays(-30)) {
+        Alerte                = if ($BGUser.SignInActivity.LastSignInDateTime -and [DateTime]$BGUser.SignInActivity.LastSignInDateTime -gt (Get-Date).AddDays(-30)) {
                                     "CONNEXION RECENTE — À INVESTIGUER"
                                 } else { "" }
         # Colonnes disponibles non exportées :
@@ -785,6 +808,8 @@ Write-Host "`n-> Export terminé dans : $ExportPath" -ForegroundColor Green
 # NETTOYAGE MÉMOIRE
 # ========================================================================================
 Remove-Variable Scopes, AllRoleDefinitions, AllAssignments, AllSchedules, AllEligibilities,
+                UsersById, GroupsById, RoleDefsById, SchedulesById, SPsById, AUsById,
+                AssignmentsByRoleId, EligibilitiesByRoleId,
                 AllAUs, AllUsers, AllGroups, AllServicePrincipals, SensitiveRoleNames,
                 BreakGlassPatterns, PermanentRows, PIMActiveRows, PIMEligibleRows,
                 GroupRoleRows, GroupAssignments, SPRoleRows, SPAssignments,
