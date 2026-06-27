@@ -100,7 +100,7 @@
 #   → 125 000 appels Graph sur AXA → throttling + ~7h d'exécution
 #
 # Version snapshot (ce script) :
-#   Get-MgReportAuthenticationMethodUserRegistration -All  ← 1 appel total
+#   Get-MgReportAuthenticationMethodUserRegistrationDetail -All  ← 1 appel total
 #   → retourne IsMfaRegistered, IsMfaCapable, MethodsRegistered pour tous les users
 #   → trade-off assumé : posture globale ✔ | granularité forensic ✘
 #
@@ -196,7 +196,7 @@ $AllCAPolicies      = Get-MgIdentityConditionalAccessPolicy -All
 # Retourne : IsMfaRegistered, IsMfaCapable, MethodsRegistered, UserPrincipalName
 # DÉCOUVERTE TECHNIQUE : nécessite Reports.Read.All — scope distinct de User.Read.All
 # Trade-off assumé : posture globale ✔ | granularité forensic par méthode ✘ (→ exo 9a)
-$MFAReport = Get-MgReportAuthenticationMethodUserRegistration -All
+$MFAReport = Get-MgReportAuthenticationMethodUserRegistrationDetail -All
 
 # ────────────────────────────────────────────────────────────────────────────────────────
 # HASHTABLES DE LOOKUP — correction O(n²) → O(n)
@@ -427,7 +427,7 @@ Write-Host "-> AdminRoles-Audit.csv   : $($AdminRoleRows.Count) assignation(s)" 
 Write-Host "7. MFA-Audit..." -ForegroundColor Cyan
 
 # ENDPOINT AGRÉGÉ — remplace le loop per-user de 9a
-# Get-MgReportAuthenticationMethodUserRegistration = 1 appel Graph pour tous les users
+# Get-MgReportAuthenticationMethodUserRegistrationDetail = 1 appel Graph pour tous les users
 # vs Get-MgUserAuthenticationMethod = 1 appel par user (125 000 appels sur AXA)
 #
 # Données disponibles via cet endpoint :
