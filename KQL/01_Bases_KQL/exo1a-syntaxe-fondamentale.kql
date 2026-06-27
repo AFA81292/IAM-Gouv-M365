@@ -1,1 +1,165 @@
+// ========================================================================================
+// Exercice 1a : KQL — Bases — Syntaxe fondamentale
+// ========================================================================================
+// Concept : KQL (Kusto Query Language) est le langage de requête de Microsoft Sentinel
+// et Log Analytics. Chaque requête commence par une table et enchaîne des opérateurs
+// avec le pipe "|" — exactement comme PowerShell pipe les objets entre cmdlets.
+//
+// Ce que couvre cet exercice :
+//   - where     : filtrer les lignes
+//   - project   : sélectionner les colonnes
+//   - extend    : créer une colonne calculée
+//   - sort / order by : trier les résultats
+//   - limit / take    : limiter le nombre de lignes
+//   - count     : compter les lignes
+//
+// Table utilisée : SigninLogs
+// Environnement  : https://aka.ms/lademo
+// ========================================================================================
+
+
+// ========================================================================================
+// ÉTAPE 1 : Explorer la table — take et count
+// ========================================================================================
+
+// La requête la plus simple : afficher les 10 premières lignes de la table.
+// "take" et "limit" sont synonymes en KQL — take est plus courant en pratique.
+// Utile pour découvrir le schéma d'une table inconnue avant d'écrire des filtres.
+SigninLogs
+| take 10
+
+// Variante : compter le nombre total de lignes dans la table
+// count renvoie une seule ligne avec le nombre — rapide pour évaluer le volume de données.
+// SigninLogs
+// | count
+
+
+// ========================================================================================
+// ÉTAPE 2 : where — filtrer les lignes
+// ========================================================================================
+
+// Filtrer sur une valeur exacte (opérateur ==)
+// ResultType = 0 signifie connexion réussie — voir note technique en bas de fichier.
+// SigninLogs
+// | where ResultType == 0
+
+// Filtrer sur une plage de temps — ago() calcule une durée relative à maintenant.
+// Bonne pratique : toujours commencer par un filtre temporel pour limiter le volume scanné.
+// SigninLogs
+// | where TimeGenerated > ago(7d)    // 7 derniers jours
+// | where TimeGenerated > ago(1h)    // 1 dernière heure
+// | where TimeGenerated > ago(30m)   // 30 dernières minutes
+
+// Combiner plusieurs filtres — chaque where est un AND implicite.
+// Equivalent à : WHERE TimeGenerated > ago(7d) AND ResultType != 0 en SQL.
+// SigninLogs
+// | where TimeGenerated > ago(7d)
+// | where ResultType != 0
+
+// Filtrer avec contains — sous-chaîne insensible à la casse.
+// Utile pour chercher dans les UPN, noms d'apps, descriptions.
+// SigninLogs
+// | where UserPrincipalName contains "geralt"
+
+// Filtrer avec in — équivalent d'un WHERE IN SQL.
+// SigninLogs
+// | where ResultType in (50126, 50053, 50055)
+
+// Filtrer avec has — mot entier (plus précis que contains, plus performant).
+// has cherche un mot délimité par des séparateurs, pas une sous-chaîne.
+// SigninLogs
+// | where AppDisplayName has "Teams"
+
+
+// ========================================================================================
+// ÉTAPE 3 : project — sélectionner les colonnes
+// ========================================================================================
+
+// Sans project, KQL retourne toutes les colonnes — souvent trop verbeux.
+// project sélectionne uniquement les colonnes utiles pour la lecture.
+// SigninLogs
+// | where TimeGenerated > ago(7d)
+// | where ResultType == 0
+// | project TimeGenerated, UserPrincipalName, AppDisplayName, IPAddress, Location
+
+// project-away : exclure des colonnes plutôt qu'en sélectionner.
+// Utile quand la table a 50 colonnes et qu'on veut tout sauf quelques-unes.
+// SigninLogs
+// | project-away TenantId, SourceSystem, ManagedIdentityApplicationId
+
+
+// ========================================================================================
+// ÉTAPE 4 : extend — créer une colonne calculée
+// ========================================================================================
+
+// extend ajoute une colonne sans supprimer les colonnes existantes.
+// Différence clé avec project : project remplace, extend ajoute.
+// SigninLogs
+// | where TimeGenerated > ago(7d)
+// | extend ConnexionReussie = iff(ResultType == 0, "Oui", "Non")
+// | project TimeGenerated, UserPrincipalName, ResultType, ConnexionReussie
+
+// Extraire une partie d'une chaîne avec tostring() + extraction de champ imbriqué.
+// Les champs JSON imbriqués (comme Location) nécessitent tostring() pour être lisibles.
+// SigninLogs
+// | where TimeGenerated > ago(7d)
+// | extend Pays = tostring(LocationDetails.countryOrRegion)
+// | extend Ville = tostring(LocationDetails.city)
+// | project TimeGenerated, UserPrincipalName, Pays, Ville
+
+
+// ========================================================================================
+// ÉTAPE 5 : sort / order by — trier les résultats
+// ========================================================================================
+
+// sort by et order by sont synonymes en KQL.
+// desc = décroissant (du plus récent au plus ancien pour les dates)
+// asc  = croissant
+// SigninLogs
+// | where TimeGenerated > ago(7d)
+// | project TimeGenerated, UserPrincipalName, ResultType
+// | sort by TimeGenerated desc
+
+
+// ========================================================================================
+// ÉTAPE 6 : Requête complète — combinaison de tous les opérateurs
+// ========================================================================================
+
+// Requête de synthèse : connexions échouées des 7 derniers jours,
+// colonnes utiles uniquement, triées par date décroissante, limitées à 50 lignes.
+// C'est le squelette de base de la majorité des requêtes d'audit IAM.
+SigninLogs
+| where TimeGenerated > ago(7d)
+| where ResultType != 0
+| extend Pays = tostring(LocationDetails.countryOrRegion)
+| project TimeGenerated, UserPrincipalName, AppDisplayName,
+          ResultType, ResultDescription, IPAddress, Pays
+| sort by TimeGenerated desc
+| limit 50
+
+// DÉCOUVERTE TECHNIQUE : ordre des opérateurs en KQL
+//   L'ordre a un impact sur les performances.
+//   Règle : mettre les filtres "where" le plus tôt possible dans la requête,
+//   surtout le filtre temporel (TimeGenerated) — il réduit le volume scanné
+//   avant toute autre opération. Les "extend" et "project" viennent après les filtres.
+//   Ordre optimal : table → where (temps) → where (autres) → extend → project → sort → limit
+
+
+// ========================================================================================
+// NOTE TECHNIQUE — ResultType : codes d'erreur SigninLogs fréquents
+// ========================================================================================
+// ResultType == 0       → Connexion réussie
+// ResultType == 50074   → MFA requis, non complété (user sans MFA enregistré)
+// ResultType == 50076   → MFA requis par Conditional Access
+// ResultType == 53003   → Bloqué par Conditional Access
+// ResultType == 50126   → Mot de passe incorrect
+// ResultType == 50057   → Compte désactivé
+// ResultType == 50055   → Mot de passe expiré
+//
+// Lister tous les codes d'erreur présents dans les données :
+// SigninLogs
+// | where TimeGenerated > ago(7d)
+// | where ResultType != 0
+// | summarize count() by ResultType, ResultDescription
+// | sort by count_ desc
 
