@@ -44,6 +44,27 @@
 #   9d → une passe multi-domaines, résultats agrégés — consomme les outputs de 9a
 #   9a → focus MFA exclusif, granularité maximale par méthode et par utilisateur
 #
+# DÉCOUVERTE TECHNIQUE — deux approches MFA en PowerShell Graph, deux trade-offs :
+#
+#   APPROCHE 1 — Per-user (ce script) :
+#     Get-MgUserAuthenticationMethod -UserId $User.Id   ← 1 appel Graph par user
+#     Ce que tu obtiens : numéro de téléphone SMS, modèle de la clé FIDO2, date
+#                         d'enregistrement de chaque méthode, détail forensic complet
+#     Ce que tu paies   : N appels Graph (N = nb users) → throttling à grande échelle
+#                         Sur 125 000 users : ~7h d'exécution + throttling Microsoft
+#     Quand l'utiliser  : audit forensic ciblé, investigation sécurité, tenant < 5 000 users
+#
+#   APPROCHE 2 — Endpoint agrégé (exo 9d) :
+#     Get-MgReportAuthenticationMethodUserRegistrationDetail -All   ← 1 appel total
+#     Ce que tu obtiens : IsMfaRegistered, IsMfaCapable, MethodsRegistered (noms),
+#                         IsPasswordlessCapable — posture globale suffisante pour un snapshot
+#     Ce que tu perds   : numéro de téléphone, modèle FIDO2, dates d'enregistrement
+#     Quand l'utiliser  : snapshot de première semaine, audit posture, grands tenants
+#
+#   RÈGLE DE CHOIX :
+#     Posture rapide / snapshot / grand tenant  → exo 9d (endpoint agrégé)
+#     Forensic / investigation / détail complet → exo 9a (per-user, ce script)
+#
 # Module requis : Microsoft.Graph.Users, Microsoft.Graph.Identity.SignIns
 # Connexion     : Connect-MgGraph
 # ========================================================================================
