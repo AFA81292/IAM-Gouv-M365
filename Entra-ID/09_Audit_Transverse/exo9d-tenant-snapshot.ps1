@@ -524,7 +524,7 @@ foreach ($SP in $NonMicrosoftSPs) {
     }
 }
 
-$AppRows | Sort-Object SansOwner -Descending, Editeur |
+$AppRows | Sort-Object @{Expression="SansOwner"; Descending=$true}, @{Expression="Editeur"; Descending=$false} |
     Export-Csv -Path "$ExportPath\EnterpriseApps-Audit.csv" -Encoding UTF8 -NoTypeInformation
 Write-Host "-> EnterpriseApps-Audit.csv : $($AppRows.Count) app(s) hors Microsoft" -ForegroundColor Green
 
