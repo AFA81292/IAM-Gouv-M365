@@ -6,12 +6,12 @@
 // avec le pipe "|" — exactement comme PowerShell pipe les objets entre cmdlets.
 //
 // Ce que couvre cet exercice :
-//   - where     : filtrer les lignes
-//   - project   : sélectionner les colonnes
-//   - extend    : créer une colonne calculée
-//   - sort / order by : trier les résultats
-//   - limit / take    : limiter le nombre de lignes
-//   - count     : compter les lignes
+//   - where          : filtrer les lignes
+//   - project        : sélectionner les colonnes
+//   - extend         : créer une colonne calculée
+//   - sort / order by: trier les résultats
+//   - limit / take   : limiter le nombre de lignes
+//   - count          : compter les lignes
 //
 // Table utilisée : SigninLogs
 // Environnement  : https://aka.ms/lademo
@@ -28,10 +28,20 @@
 SigninLogs
 | take 10
 
-// Variante : compter le nombre total de lignes dans la table
-// count renvoie une seule ligne avec le nombre — rapide pour évaluer le volume de données.
-// SigninLogs
-// | count
+// ---
+
+// Compter le nombre total de lignes dans la table.
+// count renvoie une seule ligne avec le nombre total — rapide pour évaluer le volume.
+SigninLogs
+| count
+
+// ---
+
+// Voir toutes les colonnes disponibles et leur type.
+// getschema est l'équivalent d'un "describe table" SQL.
+// Indispensable en arrivant sur un nouveau workspace Sentinel.
+SigninLogs
+| getschema
 
 
 // ========================================================================================
@@ -40,52 +50,65 @@ SigninLogs
 
 // Filtrer sur une valeur exacte (opérateur ==)
 // ResultType = 0 signifie connexion réussie — voir note technique en bas de fichier.
-// SigninLogs
-// | where ResultType == 0
+SigninLogs
+| where ResultType == 0
+
+// ---
 
 // Filtrer sur une plage de temps — ago() calcule une durée relative à maintenant.
 // Bonne pratique : toujours commencer par un filtre temporel pour limiter le volume scanné.
-// SigninLogs
-// | where TimeGenerated > ago(7d)    // 7 derniers jours
-// | where TimeGenerated > ago(1h)    // 1 dernière heure
-// | where TimeGenerated > ago(30m)   // 30 dernières minutes
+// Unités disponibles : m (minutes), h (heures), d (jours)
+SigninLogs
+| where TimeGenerated > ago(7d)
+
+// ---
 
 // Combiner plusieurs filtres — chaque where est un AND implicite.
 // Equivalent à : WHERE TimeGenerated > ago(7d) AND ResultType != 0 en SQL.
-// SigninLogs
-// | where TimeGenerated > ago(7d)
-// | where ResultType != 0
+SigninLogs
+| where TimeGenerated > ago(7d)
+| where ResultType != 0
+
+// ---
 
 // Filtrer avec contains — sous-chaîne insensible à la casse.
 // Utile pour chercher dans les UPN, noms d'apps, descriptions.
-// SigninLogs
-// | where UserPrincipalName contains "geralt"
+SigninLogs
+| where UserPrincipalName contains "adele"
+
+// ---
 
 // Filtrer avec in — équivalent d'un WHERE IN SQL.
-// SigninLogs
-// | where ResultType in (50126, 50053, 50055)
+// Pratique pour cibler plusieurs codes d'erreur en une seule ligne.
+SigninLogs
+| where ResultType in (50126, 50053, 50055)
 
-// Filtrer avec has — mot entier (plus précis que contains, plus performant).
-// has cherche un mot délimité par des séparateurs, pas une sous-chaîne.
-// SigninLogs
-// | where AppDisplayName has "Teams"
+// ---
+
+// Filtrer avec has — mot entier délimité par des séparateurs (plus précis que contains).
+// has est aussi plus performant que contains sur les grandes tables.
+SigninLogs
+| where AppDisplayName has "Teams"
 
 
 // ========================================================================================
 // ÉTAPE 3 : project — sélectionner les colonnes
 // ========================================================================================
 
-// Sans project, KQL retourne toutes les colonnes — souvent trop verbeux.
-// project sélectionne uniquement les colonnes utiles pour la lecture.
-// SigninLogs
-// | where TimeGenerated > ago(7d)
-// | where ResultType == 0
-// | project TimeGenerated, UserPrincipalName, AppDisplayName, IPAddress, Location
+// Sans project, KQL retourne toutes les colonnes — souvent trop verbeux pour l'analyse.
+// project sélectionne uniquement les colonnes utiles.
+SigninLogs
+| where TimeGenerated > ago(7d)
+| where ResultType == 0
+| project TimeGenerated, UserPrincipalName, AppDisplayName, IPAddress, Location
+
+// ---
 
 // project-away : exclure des colonnes plutôt qu'en sélectionner.
 // Utile quand la table a 50 colonnes et qu'on veut tout sauf quelques-unes.
-// SigninLogs
-// | project-away TenantId, SourceSystem, ManagedIdentityApplicationId
+SigninLogs
+| where TimeGenerated > ago(7d)
+| project-away TenantId, SourceSystem, ManagedIdentityApplicationId
 
 
 // ========================================================================================
@@ -93,40 +116,51 @@ SigninLogs
 // ========================================================================================
 
 // extend ajoute une colonne sans supprimer les colonnes existantes.
-// Différence clé avec project : project remplace, extend ajoute.
-// SigninLogs
-// | where TimeGenerated > ago(7d)
-// | extend ConnexionReussie = iff(ResultType == 0, "Oui", "Non")
-// | project TimeGenerated, UserPrincipalName, ResultType, ConnexionReussie
+// Différence clé avec project : project remplace les colonnes, extend ajoute.
+// iff() est l'équivalent KQL du ternaire if/else : iff(condition, valeur_vrai, valeur_faux)
+SigninLogs
+| where TimeGenerated > ago(7d)
+| extend ConnexionReussie = iff(ResultType == 0, "Oui", "Non")
+| project TimeGenerated, UserPrincipalName, ResultType, ConnexionReussie
 
-// Extraire une partie d'une chaîne avec tostring() + extraction de champ imbriqué.
-// Les champs JSON imbriqués (comme Location) nécessitent tostring() pour être lisibles.
-// SigninLogs
-// | where TimeGenerated > ago(7d)
-// | extend Pays = tostring(LocationDetails.countryOrRegion)
-// | extend Ville = tostring(LocationDetails.city)
-// | project TimeGenerated, UserPrincipalName, Pays, Ville
+// ---
+
+// Extraire des champs imbriqués (JSON) avec tostring().
+// Les propriétés complexes comme LocationDetails sont des objets JSON —
+// tostring() les rend lisibles et utilisables dans un project ou un filtre.
+SigninLogs
+| where TimeGenerated > ago(7d)
+| extend Pays = tostring(LocationDetails.countryOrRegion)
+| extend Ville = tostring(LocationDetails.city)
+| project TimeGenerated, UserPrincipalName, Pays, Ville
 
 
 // ========================================================================================
-// ÉTAPE 5 : sort / order by — trier les résultats
+// ÉTAPE 5 : sort — trier les résultats
 // ========================================================================================
 
 // sort by et order by sont synonymes en KQL.
 // desc = décroissant (du plus récent au plus ancien pour les dates)
-// asc  = croissant
-// SigninLogs
-// | where TimeGenerated > ago(7d)
-// | project TimeGenerated, UserPrincipalName, ResultType
-// | sort by TimeGenerated desc
+// asc  = croissant (du plus ancien au plus récent)
+SigninLogs
+| where TimeGenerated > ago(7d)
+| project TimeGenerated, UserPrincipalName, ResultType
+| sort by TimeGenerated desc
+
+// ---
+
+// Trier sur plusieurs colonnes — priorité de gauche à droite.
+SigninLogs
+| where TimeGenerated > ago(7d)
+| project TimeGenerated, UserPrincipalName, ResultType
+| sort by UserPrincipalName asc, TimeGenerated desc
 
 
 // ========================================================================================
-// ÉTAPE 6 : Requête complète — combinaison de tous les opérateurs
+// ÉTAPE 6 : Requête de synthèse — combinaison de tous les opérateurs
 // ========================================================================================
 
-// Requête de synthèse : connexions échouées des 7 derniers jours,
-// colonnes utiles uniquement, triées par date décroissante, limitées à 50 lignes.
+// Connexions échouées des 7 derniers jours, colonnes utiles, triées par date.
 // C'est le squelette de base de la majorité des requêtes d'audit IAM.
 SigninLogs
 | where TimeGenerated > ago(7d)
@@ -137,12 +171,16 @@ SigninLogs
 | sort by TimeGenerated desc
 | limit 50
 
-// DÉCOUVERTE TECHNIQUE : ordre des opérateurs en KQL
-//   L'ordre a un impact sur les performances.
-//   Règle : mettre les filtres "where" le plus tôt possible dans la requête,
+// DÉCOUVERTE TECHNIQUE — ordre des opérateurs en KQL
+//   L'ordre a un impact direct sur les performances.
+//   Règle fondamentale : mettre les filtres "where" le plus tôt possible,
 //   surtout le filtre temporel (TimeGenerated) — il réduit le volume scanné
-//   avant toute autre opération. Les "extend" et "project" viennent après les filtres.
+//   avant toute autre opération.
+//   Les "extend" et "project" viennent après les filtres, jamais avant.
+//
 //   Ordre optimal : table → where (temps) → where (autres) → extend → project → sort → limit
+//   Ordre sous-optimal : table → extend → project → where → sort → limit
+//   Sur une table de 10 millions de lignes, la différence est de plusieurs secondes.
 
 
 // ========================================================================================
@@ -157,8 +195,8 @@ SigninLogs
 // ResultType == 50055   → Mot de passe expiré
 //
 // Lister tous les codes d'erreur présents dans les données :
-// SigninLogs
-// | where TimeGenerated > ago(7d)
-// | where ResultType != 0
-// | summarize count() by ResultType, ResultDescription
-// | sort by count_ desc
+SigninLogs
+| where TimeGenerated > ago(7d)
+| where ResultType != 0
+| summarize count() by ResultType, ResultDescription
+| sort by count_ desc
