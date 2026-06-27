@@ -133,7 +133,7 @@ foreach ($SP in $AllSPs) {
         TypeSP                   = $SP.ServicePrincipalType
         Actif                    = $SP.AccountEnabled
         CreeLe                   = $SP.CreatedDateTime
-        Recent                   = $SP.CreatedDateTime -gt $RecentThreshold
+        Recent                   = [DateTime]$SP.CreatedDateTime -gt $RecentThreshold
         # Colonnes disponibles non exportées :
         #   $SP.Id                        : ObjectId du SP (pour Get-MgServicePrincipalOwner)
         #   $SP.AppOwnerOrganizationId    : GUID tenant éditeur
@@ -227,6 +227,15 @@ Write-Host "5. Détection des apps avec permissions élevées..." -ForegroundCol
 # consenties au niveau tenant pour un SP donné.
 # Chaque AppRoleAssignment pointe vers un ResourceId (ex : Graph) et un AppRoleId (GUID).
 # On résout le GUID en nom lisible via le SP de la ressource (Microsoft Graph SP).
+#
+# LIMITE DE SCALABILITÉ — fan-out inévitable sur cet endpoint :
+#   Il n'existe pas d'endpoint Graph agrégé pour les AppRoleAssignments de tous les SPs.
+#   La seule approche disponible est 1 appel par SP — contrairement au MFA (exo 9a/9d)
+#   où un endpoint /reports/ permet un appel unique.
+#   Sur 227 SPs (tenant de dev) : rapide. Sur 2 000 SPs (tenant de prod) : notable.
+#   Solution enterprise : batching Graph ($batch, 20 appels groupés) ou
+#   Microsoft Graph Data Connect pour export massif hors bande.
+#   Non implémenté ici — voir bloc scalabilité dans l'en-tête de exo 9d.
 $PermissionRows = @()
 
 # Récupération du SP Microsoft Graph pour résoudre les AppRoleIds en noms lisibles
