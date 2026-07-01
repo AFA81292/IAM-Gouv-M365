@@ -1,1 +1,114 @@
+// ========================================================================================
+// Exercice 2b : KQL — SignIn Logs — Posture MFA : succès, bypass, absents
+// ========================================================================================
+// Concept : AuthenticationRequirement indique si une connexion a été soumise à une
+// exigence MFA ou non — c'est la donnée de base pour tout audit de posture MFA
+// via les logs de connexion, complémentaire à l'audit PowerShell (exo 9a/9d).
+//
+// Table utilisée : SigninLogs
+// Environnement  : https://aka.ms/lademo
+// ========================================================================================
+
+
+// ========================================================================================
+// ÉTAPE 1 : Répartition globale MFA vs sans MFA
+// ========================================================================================
+
+// Vue de posture immédiate — proportion de connexions soumises au MFA sur le tenant.
+SigninLogs
+| where TimeGenerated > ago(7d)
+| where ResultType == 0
+| summarize NbConnexions = count() by AuthenticationRequirement
+| render piechart
+
+// ---
+
+// Même vue en pourcentage explicite plutôt qu'en graphique — utile pour un rapport texte.
+SigninLogs
+| where TimeGenerated > ago(7d)
+| where ResultType == 0
+| summarize NbConnexions = count() by AuthenticationRequirement
+| extend Pourcentage = round((todouble(NbConnexions) / toscalar(
+    SigninLogs | where TimeGenerated > ago(7d) | where ResultType == 0 | count
+  )) * 100, 1)
+
+
+// ========================================================================================
+// ÉTAPE 2 : Utilisateurs jamais passés par le MFA
+// ========================================================================================
+
+// Utilisateurs dont AUCUNE connexion sur la période n'a exigé de MFA — exposition
+// continue. Complémentaire à l'audit PowerShell 9a qui regarde les méthodes enregistrées ;
+// ici on regarde l'usage réel observé dans les logs de connexion.
+SigninLogs
+| where TimeGenerated > ago(30d)
+| where ResultType == 0
+| summarize NbAvecMFA = countif(AuthenticationRequirement == "multiFactorAuthentication"),
+            NbSansMFA = countif(AuthenticationRequirement == "singleFactorAuthentication")
+            by UserPrincipalName
+| where NbAvecMFA == 0 and NbSansMFA > 0
+| sort by NbSansMFA desc
+
+
+// ========================================================================================
+// ÉTAPE 3 : Connexions où le MFA était requis mais non complété
+// ========================================================================================
+
+// ResultType 50074 : MFA requis par la politique, mais l'utilisateur n'a pas terminé
+// le second facteur. Différent de "sans MFA" (étape 2) — ici il y a une tentative,
+// pas une absence totale. Signal utile : utilisateur qui bloque sur l'enrôlement MFA.
+SigninLogs
+| where TimeGenerated > ago(7d)
+| where ResultType == 50074
+| summarize NbTentativesEchouees = count() by UserPrincipalName
+| sort by NbTentativesEchouees desc
+
+
+// ========================================================================================
+// ÉTAPE 4 : Proxy de bypass — connexions CA non appliquées malgré ciblage
+// ========================================================================================
+
+// [Guessing] Le champ ConditionalAccessStatus peut varier selon la version du schéma
+// Sentinel — vérifier sa présence via SigninLogs | getschema avant d'exécuter ce bloc.
+// Valeurs attendues : "success", "failure", "notApplied", "unknownFutureValue"
+// "notApplied" sur une connexion sans MFA peut indiquer que la politique CA ciblant
+// l'utilisateur ne s'est pas déclenchée — à vérifier au cas par cas (scope, exclusion).
+SigninLogs
+| where TimeGenerated > ago(7d)
+| where AuthenticationRequirement == "singleFactorAuthentication"
+| where ConditionalAccessStatus == "notApplied"
+| project TimeGenerated, UserPrincipalName, AppDisplayName, ConditionalAccessStatus
+| sort by TimeGenerated desc
+
+
+// ========================================================================================
+// ÉTAPE 5 : Requête de synthèse — taux de couverture MFA par utilisateur
+// ========================================================================================
+
+// Rapport exploitable : pour chaque utilisateur, proportion de connexions avec MFA
+// sur 30 jours. Complète l'audit PowerShell 9a avec la dimension "usage réel"
+// plutôt que "méthode enregistrée" — un utilisateur peut avoir le MFA enregistré
+// mais ne jamais être sollicité si le Conditional Access ne le cible pas.
+SigninLogs
+| where TimeGenerated > ago(30d)
+| where ResultType == 0
+| summarize NbTotal = count(),
+            NbAvecMFA = countif(AuthenticationRequirement == "multiFactorAuthentication")
+            by UserPrincipalName
+| extend TauxMFA = round((todouble(NbAvecMFA) / NbTotal) * 100, 1)
+| sort by TauxMFA asc
+
+
+// ========================================================================================
+// DÉCOUVERTE TECHNIQUE — logs de connexion vs méthodes enregistrées
+// ========================================================================================
+// Deux sources de vérité distinctes pour la posture MFA, avec des réponses différentes :
+//
+//   SigninLogs (ce fichier)     : ce qui a été EXIGÉ et OBSERVÉ à chaque connexion
+//   Get-MgUserAuthenticationMethod (exo 9a) : ce qui est ENREGISTRÉ sur le compte
+//
+// Un utilisateur peut avoir une méthode MFA enregistrée (9a dit "avec MFA") mais
+// ne jamais être sollicité si aucune politique CA ne le cible (SigninLogs dit "sans MFA"
+// sur toutes ses connexions). Les deux audits sont complémentaires, pas redondants —
+// PowerShell répond "est-il capable de faire du MFA", KQL répond "en fait-il vraiment".
 
