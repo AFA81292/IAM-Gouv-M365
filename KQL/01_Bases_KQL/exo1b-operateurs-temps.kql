@@ -1,1 +1,182 @@
+// ========================================================================================
+// Exercice 1b : KQL — Bases — Opérateurs de temps
+// ========================================================================================
+// Concept : Le temps est la dimension la plus critique en KQL — Sentinel et Log Analytics
+// stockent des volumes massifs de logs, et le filtre temporel est ce qui détermine
+// combien de données sont scannées avant tout autre traitement.
+// Un mauvais filtre temporel = requête lente ou timeout sur un vrai tenant de prod.
+//
+// Ce que couvre cet exercice :
+//   - ago()               : durée relative à maintenant
+//   - now()                : timestamp actuel
+//   - between               : plage de dates explicite
+//   - startofday / endofday / startofweek / startofmonth : bornes de périodes
+//   - bin()                 : regroupement en buckets temporels (pour summarize)
+//   - format_datetime       : formatage d'affichage
+//
+// Table utilisée : SigninLogs
+// Environnement  : https://aka.ms/lademo
+// ========================================================================================
 
+
+// ========================================================================================
+// ÉTAPE 1 : ago() — durée relative à maintenant
+// ========================================================================================
+
+// ago() calcule un instant dans le passé, relatif au moment de l'exécution.
+// Unités disponibles : d (jours), h (heures), m (minutes), s (secondes)
+// C'est l'opérateur temporel le plus utilisé en KQL — présent dans 90% des requêtes d'audit.
+SigninLogs
+| where TimeGenerated > ago(1d)
+| count
+
+// ---
+
+// Comparer différentes fenêtres temporelles sur la même requête.
+// Utile pour évaluer combien de données couvre chaque plage avant de choisir la bonne.
+SigninLogs
+| where TimeGenerated > ago(7d)
+| count
+
+// ---
+
+// now() retourne le timestamp exact de l'exécution — utile pour des calculs de durée.
+print MaintenantUTC = now()
+
+// ---
+
+// Combiner ago() avec une borne haute pour une fenêtre glissante fermée.
+// Exemple : uniquement les logs d'il y a 7 à 14 jours (exclut les 7 derniers jours).
+SigninLogs
+| where TimeGenerated between (ago(14d) .. ago(7d))
+| count
+
+
+// ========================================================================================
+// ÉTAPE 2 : between — plage de dates explicite
+// ========================================================================================
+
+// between fonctionne aussi avec des dates fixes, pas seulement des ago().
+// Syntaxe : datetime(YYYY-MM-DD) — format ISO obligatoire.
+// Utile pour auditer un incident sur une période précise et connue.
+SigninLogs
+| where TimeGenerated between (datetime(2026-06-01) .. datetime(2026-06-30))
+| count
+
+// ---
+
+// between avec un mélange date fixe + ago() — plage ouverte vers le présent.
+SigninLogs
+| where TimeGenerated between (datetime(2026-06-01) .. now())
+| count
+
+
+// ========================================================================================
+// ÉTAPE 3 : startofday / endofday / startofweek / startofmonth — bornes de périodes
+// ========================================================================================
+
+// startofday() ramène un datetime au début de sa journée (00:00:00).
+// Utile pour des comparaisons "aujourd'hui" propres, sans effet d'heure de connexion.
+SigninLogs
+| where TimeGenerated > startofday(now())
+| count
+
+// ---
+
+// Comparer "hier" à "aujourd'hui" avec startofday() et ago(1d).
+SigninLogs
+| where TimeGenerated > startofday(ago(1d))
+| where TimeGenerated < startofday(now())
+| count
+
+// ---
+
+// startofweek() et startofmonth() suivent la même logique — bornes de semaine/mois.
+// Utile pour des rapports périodiques (audit mensuel, revue hebdomadaire).
+SigninLogs
+| where TimeGenerated > startofmonth(now())
+| count
+
+// ---
+
+// endofday() : borne haute de la journée — utile pour cadrer une journée complète.
+SigninLogs
+| where TimeGenerated between (startofday(ago(1d)) .. endofday(ago(1d)))
+| count
+
+
+// ========================================================================================
+// ÉTAPE 4 : bin() — regroupement en buckets temporels
+// ========================================================================================
+
+// bin() n'est PAS un filtre — c'est un opérateur de regroupement, utilisé avec summarize.
+// Il arrondit chaque timestamp au bucket le plus proche (1h, 1d, 30m...).
+// Indispensable pour construire des graphiques temporels lisibles (render timechart).
+SigninLogs
+| where TimeGenerated > ago(1d)
+| summarize NbConnexions = count() by bin(TimeGenerated, 1h)
+| sort by TimeGenerated asc
+
+// ---
+
+// bin() avec une granularité plus fine — utile pour détecter des pics courts
+// (ex : rafale de connexions échouées sur quelques minutes = signal brute force).
+SigninLogs
+| where TimeGenerated > ago(2h)
+| where ResultType != 0
+| summarize NbEchecs = count() by bin(TimeGenerated, 5m)
+| sort by TimeGenerated asc
+
+// ---
+
+// bin() avec granularité jour — pour des tendances sur plusieurs semaines.
+SigninLogs
+| where TimeGenerated > ago(30d)
+| summarize NbConnexions = count() by bin(TimeGenerated, 1d)
+| sort by TimeGenerated asc
+
+
+// ========================================================================================
+// ÉTAPE 5 : format_datetime — formatage d'affichage
+// ========================================================================================
+
+// Par défaut TimeGenerated s'affiche en ISO 8601 UTC — pas toujours lisible.
+// format_datetime() permet un affichage personnalisé, utile pour des rapports.
+SigninLogs
+| where TimeGenerated > ago(1d)
+| extend DateLisible = format_datetime(TimeGenerated, "dd/MM/yyyy HH:mm")
+| project DateLisible, UserPrincipalName, ResultType
+| take 10
+
+
+// ========================================================================================
+// ÉTAPE 6 : Requête de synthèse — activité par heure sur 24h
+// ========================================================================================
+
+// Combine ago(), bin() et summarize pour un rapport d'activité horaire.
+// C'est le squelette de base d'un dashboard de monitoring de connexions.
+SigninLogs
+| where TimeGenerated > ago(1d)
+| summarize NbConnexions = count(),
+            NbEchecs = countif(ResultType != 0)
+            by bin(TimeGenerated, 1h)
+| extend TauxEchec = round((todouble(NbEchecs) / NbConnexions) * 100, 1)
+| sort by TimeGenerated asc
+
+
+// ========================================================================================
+// DÉCOUVERTE TECHNIQUE — pourquoi le filtre temporel doit être en première ligne
+// ========================================================================================
+// Sentinel et Log Analytics indexent les données par TimeGenerated en priorité.
+// Un filtre temporel placé en tout premier ("where TimeGenerated > ago(X)") permet
+// au moteur de requête de ne scanner QUE la plage concernée — pas toute la table.
+//
+// Sur un vrai tenant de prod avec des mois d'historique :
+//   SigninLogs | where TimeGenerated > ago(1h) | where ResultType != 0
+//   → rapide, quelques secondes
+//
+//   SigninLogs | where ResultType != 0 | where TimeGenerated > ago(1h)
+//   → même résultat, mais potentiellement scan complet avant filtrage temporel
+//   → lent, voire timeout sur un workspace volumineux
+//
+// Règle : le filtre TimeGenerated est TOUJOURS le premier where de la requête.
