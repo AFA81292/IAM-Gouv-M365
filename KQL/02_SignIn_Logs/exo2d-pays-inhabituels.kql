@@ -1,1 +1,118 @@
+// ========================================================================================
+// Exercice 2d : KQL — SignIn Logs — Connexions depuis pays inhabituels
+// ========================================================================================
+// Concept : Une connexion depuis un pays jamais vu pour un utilisateur donné, ou deux
+// connexions du même utilisateur depuis des pays éloignés en peu de temps ("impossible
+// travel"), sont des signaux classiques de compromission de compte à surveiller.
+//
+// Table utilisée : SigninLogs
+// Environnement  : https://aka.ms/lademo
+// ========================================================================================
+
+
+// ========================================================================================
+// ÉTAPE 1 : Répartition globale des connexions par pays — baseline
+// ========================================================================================
+
+// Avant de chercher l'anomalie, établir la normale du tenant.
+// Sur un tenant d'entreprise française, une majorité écrasante de connexions FR
+// est attendue — tout pays représentant une part marginale mérite un coup d'œil.
+SigninLogs
+| where TimeGenerated > ago(30d)
+| where ResultType == 0
+| extend Pays = tostring(LocationDetails.countryOrRegion)
+| summarize NbConnexions = count() by Pays
+| sort by NbConnexions desc
+| render columnchart
+
+
+// ========================================================================================
+// ÉTAPE 2 : Pays utilisés par utilisateur
+// ========================================================================================
+
+// Pour chaque utilisateur, la liste des pays depuis lesquels il s'est connecté.
+// Un utilisateur avec 1 seul pays sur 30 jours est le profil normal (télétravail
+// domestique). Plusieurs pays justifie une vérification du contexte (déplacement
+// professionnel légitime vs signal d'alerte).
+SigninLogs
+| where TimeGenerated > ago(30d)
+| where ResultType == 0
+| extend Pays = tostring(LocationDetails.countryOrRegion)
+| summarize PaysUtilises = make_set(Pays), NbPaysDistincts = dcount(Pays) by UserPrincipalName
+| where NbPaysDistincts > 1
+| sort by NbPaysDistincts desc
+
+
+// ========================================================================================
+// ÉTAPE 3 : Utilisateurs avec un nombre de pays distincts anormalement élevé
+// ========================================================================================
+
+// Seuil arbitraire à ajuster selon le profil du tenant — 3 pays distincts sur 7 jours
+// est un signal fort pour un utilisateur non-voyageur. À moduler selon les métiers
+// (un commercial international aura naturellement plus de variabilité).
+SigninLogs
+| where TimeGenerated > ago(7d)
+| where ResultType == 0
+| extend Pays = tostring(LocationDetails.countryOrRegion)
+| summarize NbPaysDistincts = dcount(Pays) by UserPrincipalName
+| where NbPaysDistincts >= 3
+| sort by NbPaysDistincts desc
+
+
+// ========================================================================================
+// ÉTAPE 4 : Détection simplifiée d'impossible travel
+// ========================================================================================
+
+// Principe : pour un même utilisateur, comparer deux connexions consécutives.
+// Si les pays diffèrent ET que l'écart de temps entre les deux est trop court pour
+// un déplacement physique réel, c'est un signal d'impossible travel.
+// prev() récupère la valeur de la ligne précédente dans une fenêtre triée — utile
+// pour comparer un événement au précédent sans jointure.
+SigninLogs
+| where TimeGenerated > ago(7d)
+| where ResultType == 0
+| extend Pays = tostring(LocationDetails.countryOrRegion)
+| sort by UserPrincipalName asc, TimeGenerated asc
+| extend PaysPrecedent = prev(Pays),
+         UserPrecedent = prev(UserPrincipalName),
+         TempsPrecedent = prev(TimeGenerated)
+| where UserPrincipalName == UserPrecedent   // même utilisateur uniquement
+| where Pays != PaysPrecedent                 // changement de pays
+| extend EcartMinutes = datetime_diff('minute', TimeGenerated, TempsPrecedent)
+| where EcartMinutes < 180   // moins de 3h entre deux pays différents = suspect
+| project UserPrincipalName, PaysPrecedent, Pays, TempsPrecedent, TimeGenerated, EcartMinutes
+| sort by EcartMinutes asc
+
+
+// ========================================================================================
+// ÉTAPE 5 : Requête de synthèse — rapport géographique par utilisateur
+// ========================================================================================
+
+// Rapport exploitable : pour chaque utilisateur avec plusieurs pays, le détail complet
+// pour investigation manuelle — livrable direct pour une revue sécurité mensuelle.
+SigninLogs
+| where TimeGenerated > ago(30d)
+| where ResultType == 0
+| extend Pays = tostring(LocationDetails.countryOrRegion)
+| summarize NbConnexions = count(),
+            PaysUtilises = make_set(Pays),
+            NbPaysDistincts = dcount(Pays),
+            DerniereConnexion = max(TimeGenerated)
+            by UserPrincipalName
+| where NbPaysDistincts > 1
+| sort by NbPaysDistincts desc
+
+
+// ========================================================================================
+// DÉCOUVERTE TECHNIQUE — prev() nécessite un tri explicite et cohérent
+// ========================================================================================
+// prev() lit la valeur de la ligne précédente dans le résultat TEL QU'IL EST TRIÉ
+// au moment de l'appel — pas dans un ordre chronologique implicite.
+// Sans le "sort by UserPrincipalName asc, TimeGenerated asc" placé AVANT le extend
+// avec prev(), la comparaison n'aurait aucun sens (lignes de users différents
+// mélangées, ordre temporel non garanti).
+//
+// Piège classique : appeler prev() après un summarize ou un project qui a changé
+// l'ordre des lignes sans nouveau sort explicite — le résultat devient silencieusement
+// incorrect sans lever d'erreur. Toujours vérifier le sort juste avant un prev()/next().
 
