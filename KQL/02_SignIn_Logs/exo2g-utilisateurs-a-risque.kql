@@ -1,1 +1,152 @@
+// ========================================================================================
+// Exercice 2g : KQL — SignIn Logs — Utilisateurs à risque (Entra ID Protection)
+// ========================================================================================
+// Concept : Entra ID Protection évalue en continu un score de risque par utilisateur
+// (AADRiskyUsers) basé sur des événements individuels détectés (AADUserRiskEvents) —
+// identifiants divulgués, connexion depuis IP anonyme, impossible travel détecté
+// nativement par Microsoft (plus fiable que la détection maison de l'exo 2d).
+//
+// [Guessing] Les tables AADRiskyUsers et AADUserRiskEvents nécessitent Entra ID P2
+// et peuvent être vides ou absentes sur certains workspaces de démo selon la
+// configuration — vérifier leur présence via une requête "count" avant de creuser.
+//
+// Tables utilisées : AADRiskyUsers, AADUserRiskEvents
+// Environnement    : https://aka.ms/lademo
+// ========================================================================================
+
+
+// ========================================================================================
+// ÉTAPE 1 : Vérifier la disponibilité des données
+// ========================================================================================
+
+// Premier réflexe sur une table peu commune : vérifier qu'elle contient des données
+// avant d'investir du temps à écrire des requêtes dessus.
+AADRiskyUsers
+| count
+
+// ---
+
+AADUserRiskEvents
+| count
+
+
+// ========================================================================================
+// ÉTAPE 2 : Liste des utilisateurs actuellement à risque
+// ========================================================================================
+
+// RiskState indique si le risque est actif ou a été traité.
+// Valeurs courantes : "atRisk" (actif, non traité), "confirmedCompromised",
+// "remediated" (corrigé), "dismissed" (écarté par un admin), "safe".
+AADRiskyUsers
+| where RiskState == "atRisk"
+| project UserPrincipalName, RiskLevel, RiskState, RiskLastUpdatedDateTime
+| sort by RiskLastUpdatedDateTime desc
+
+// ---
+
+// Filtrer sur les niveaux de risque élevés uniquement — priorisation immédiate.
+// RiskLevel : "low", "medium", "high"
+AADRiskyUsers
+| where RiskState == "atRisk"
+| where RiskLevel == "high"
+| project UserPrincipalName, RiskLevel, RiskLastUpdatedDateTime
+
+
+// ========================================================================================
+// ÉTAPE 3 : Types d'événements de risque détectés
+// ========================================================================================
+
+// AADUserRiskEvents détaille CHAQUE événement individuel ayant contribué au score
+// de risque — un utilisateur "atRisk" peut avoir plusieurs événements cumulés.
+// RiskEventType renseigne la nature précise de la détection.
+AADUserRiskEvents
+| where TimeGenerated > ago(30d)
+| summarize NbEvenements = count() by RiskEventType
+| sort by NbEvenements desc
+
+// ---
+
+// Détail chronologique des événements de risque récents, tous types confondus.
+AADUserRiskEvents
+| where TimeGenerated > ago(30d)
+| project TimeGenerated, UserPrincipalName, RiskEventType, RiskLevel, RiskState
+| sort by TimeGenerated desc
+
+
+// ========================================================================================
+// ÉTAPE 4 : Croiser utilisateurs à risque et événements détaillés
+// ========================================================================================
+
+// join pour obtenir en une seule vue le niveau de risque global d'un utilisateur
+// ET le détail des événements qui l'ont généré — utile pour une investigation complète
+// sans naviguer entre deux tables séparément.
+AADRiskyUsers
+| where RiskState == "atRisk"
+| join kind=inner (
+    AADUserRiskEvents
+    | where TimeGenerated > ago(30d)
+    | project UserPrincipalName, RiskEventType, TimeGenerated
+  ) on UserPrincipalName
+| project UserPrincipalName, RiskLevel, RiskEventType, TimeGenerated
+| sort by TimeGenerated desc
+
+
+// ========================================================================================
+// ÉTAPE 5 : Utilisateurs à risque qui continuent de se connecter normalement
+// ========================================================================================
+
+// Le signal le plus préoccupant : un utilisateur signalé à risque par Entra ID
+// Protection, dont le risque n'a PAS été remédié (RiskState = "atRisk"), et qui
+// continue pourtant à se connecter avec succès — le risque n'a pas été traité
+// et l'accès n'a pas été bloqué, fenêtre d'exposition active.
+let UtilisateursARisque = AADRiskyUsers
+    | where RiskState == "atRisk"
+    | distinct UserPrincipalName;
+SigninLogs
+| where TimeGenerated > ago(7d)
+| where ResultType == 0
+| where UserPrincipalName in (UtilisateursARisque)
+| summarize NbConnexionsReussies = count(), DerniereConnexion = max(TimeGenerated) by UserPrincipalName
+| sort by NbConnexionsReussies desc
+
+
+// ========================================================================================
+// ÉTAPE 6 : Requête de synthèse — rapport de posture risque
+// ========================================================================================
+
+// Rapport exploitable : chaque utilisateur à risque, son niveau, ses événements
+// déclencheurs, et s'il continue de se connecter — livrable direct pour le RSSI.
+AADRiskyUsers
+| where RiskState == "atRisk"
+| join kind=leftouter (
+    AADUserRiskEvents
+    | where TimeGenerated > ago(30d)
+    | summarize TypesEvenements = make_set(RiskEventType) by UserPrincipalName
+  ) on UserPrincipalName
+| join kind=leftouter (
+    SigninLogs
+    | where TimeGenerated > ago(7d)
+    | where ResultType == 0
+    | summarize NbConnexionsRecentes = count() by UserPrincipalName
+  ) on UserPrincipalName
+| project UserPrincipalName, RiskLevel, TypesEvenements,
+          NbConnexionsRecentes = iff(isnull(NbConnexionsRecentes), 0, NbConnexionsRecentes)
+| sort by NbConnexionsRecentes desc
+
+
+// ========================================================================================
+// DÉCOUVERTE TECHNIQUE — join kind=leftouter pour ne pas perdre de lignes
+// ========================================================================================
+// join kind=inner (utilisé étape 4) ne garde que les lignes présentes des deux côtés —
+// si un utilisateur à risque n'a aucun événement dans la fenêtre de 30 jours (risque
+// détecté avant cette fenêtre), il disparaît du résultat.
+//
+// join kind=leftouter (utilisé étape 6) garde TOUTES les lignes de la table de gauche
+// (AADRiskyUsers), même sans correspondance à droite — les colonnes de droite
+// deviennent alors null pour ces lignes. C'est pourquoi le project final utilise
+// iff(isnull(...)) pour remplacer les null par une valeur lisible (0 connexions)
+// plutôt que d'afficher un vide ambigu dans le rapport.
+//
+// Règle pratique : join kind=inner pour une intersection stricte, join kind=leftouter
+// dès que la table de gauche représente la population de référence à ne pas perdre.
 
