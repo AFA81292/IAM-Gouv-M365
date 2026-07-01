@@ -41,7 +41,11 @@ SigninLogs
 // ---
 
 // now() retourne le timestamp exact de l'exécution — utile pour des calculs de durée.
-print MaintenantUTC = now()
+// Note : certains workspaces de démo restreignent les requêtes "print" standalone
+// (sans table source) — si print seul échoue, ancrer sur une table comme ci-dessous.
+SigninLogs
+| take 1
+| project MaintenantUTC = now()
 
 // ---
 
