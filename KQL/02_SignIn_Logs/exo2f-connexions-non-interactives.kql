@@ -1,1 +1,110 @@
+// ========================================================================================
+// Exercice 2f : KQL — SignIn Logs — Connexions non interactives suspectes
+// ========================================================================================
+// Concept : Les connexions non interactives (renouvellement de token, apps en
+// arrière-plan) sont invisibles pour l'utilisateur mais représentent une part
+// majeure du trafic d'authentification réel — et un angle mort fréquent des audits
+// qui ne regardent que SigninLogs (connexions interactives uniquement).
+//
+// Table utilisée : AADNonInteractiveUserSignInLogs
+// Environnement  : https://aka.ms/lademo
+// ========================================================================================
+
+
+// ========================================================================================
+// ÉTAPE 1 : Vue globale — volume et répartition succès/échecs
+// ========================================================================================
+
+// Même schéma que SigninLogs — les mêmes opérateurs et codes ResultType s'appliquent.
+// Premier réflexe : comparer le volume non-interactif au volume interactif.
+AADNonInteractiveUserSignInLogs
+| where TimeGenerated > ago(7d)
+| summarize NbTotal = count(),
+            NbEchecs = countif(ResultType != 0)
+            by bin(TimeGenerated, 1d)
+| render timechart
+
+
+// ========================================================================================
+// ÉTAPE 2 : Applications avec le plus d'échecs non interactifs
+// ========================================================================================
+
+// Un volume élevé d'échecs non interactifs sur une app spécifique indique souvent
+// un problème technique (token expiré en boucle, app mal configurée) plutôt qu'une
+// attaque — mais mérite vérification, notamment si l'app n'est pas reconnue.
+AADNonInteractiveUserSignInLogs
+| where TimeGenerated > ago(7d)
+| where ResultType != 0
+| summarize NbEchecs = count() by AppDisplayName
+| sort by NbEchecs desc
+
+
+// ========================================================================================
+// ÉTAPE 3 : IP rares en interactif mais actives en non-interactif
+// ========================================================================================
+
+// Signal d'automatisation suspecte : une IP qui génère beaucoup de connexions
+// non interactives (typique d'un script ou d'un service) sans jamais apparaître
+// en connexion interactive normale peut indiquer un token volé utilisé par un outil
+// automatisé plutôt que par l'utilisateur légitime derrière un navigateur.
+let IPsInteractives = SigninLogs
+    | where TimeGenerated > ago(7d)
+    | distinct IPAddress;
+AADNonInteractiveUserSignInLogs
+| where TimeGenerated > ago(7d)
+| where ResultType == 0
+| summarize NbConnexionsNonInteractives = count() by IPAddress, UserPrincipalName
+| where IPAddress !in (IPsInteractives)
+| where NbConnexionsNonInteractives > 20
+| sort by NbConnexionsNonInteractives desc
+
+
+// ========================================================================================
+// ÉTAPE 4 : Vue unifiée d'un utilisateur — interactif + non interactif
+// ========================================================================================
+
+// union combine les deux tables en un seul flux — indispensable pour une vue
+// complète de l'activité réelle d'un compte, que la connexion soit visible
+// à l'utilisateur ou silencieuse en arrière-plan.
+// withsource ajoute une colonne indiquant la table d'origine de chaque ligne.
+union withsource=TableSource SigninLogs, AADNonInteractiveUserSignInLogs
+| where TimeGenerated > ago(1d)
+| where UserPrincipalName == "AdeleV@lademo.onmicrosoft.com"
+| project TimeGenerated, TableSource, AppDisplayName, ResultType, IPAddress
+| sort by TimeGenerated desc
+
+
+// ========================================================================================
+// ÉTAPE 5 : Requête de synthèse — comparaison volumes interactif vs non interactif
+// ========================================================================================
+
+// Rapport de contexte : pour chaque utilisateur, le ratio entre connexions visibles
+// (interactives) et invisibles (non interactives). Un ratio très déséquilibré vers
+// le non-interactif pour un utilisateur peu actif peut signaler une app tierce
+// ou une automatisation utilisant ses identifiants sans son intervention directe.
+union withsource=TableSource SigninLogs, AADNonInteractiveUserSignInLogs
+| where TimeGenerated > ago(7d)
+| where ResultType == 0
+| summarize NbInteractives = countif(TableSource == "SigninLogs"),
+            NbNonInteractives = countif(TableSource == "AADNonInteractiveUserSignInLogs")
+            by UserPrincipalName
+| where NbNonInteractives > 0
+| extend RatioNonInteractif = round(todouble(NbNonInteractives) / (NbInteractives + NbNonInteractives) * 100, 1)
+| sort by RatioNonInteractif desc
+
+
+// ========================================================================================
+// DÉCOUVERTE TECHNIQUE — union vs join
+// ========================================================================================
+// union empile deux tables verticalement (mêmes colonnes, plus de lignes) —
+// utilisé ici pour fusionner deux tables au schéma identique en un seul flux.
+// join combine deux tables horizontalement (colonnes des deux côtés sur une clé
+// commune) — utilisé en exo 2e pour corréler des échecs et des succès.
+//
+// Ne pas confondre : union répond à "montre-moi tout ce qui existe dans A ET B",
+// join répond à "montre-moi les lignes de A qui correspondent à des lignes de B".
+//
+// withsource=NomColonne sur union est optionnel mais recommandé dès que les tables
+// fusionnées ont des origines différentes — sans lui, impossible de savoir après coup
+// de quelle table provient chaque ligne du résultat.
 
