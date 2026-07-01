@@ -1,1 +1,120 @@
+// ========================================================================================
+// Exercice 3c : KQL — Audit Logs Entra — Modifications de groupes et memberships
+// ========================================================================================
+// Concept : Les groupes sont un vecteur d'accès indirect — ajouter un utilisateur
+// à un groupe peut lui donner des droits sans passer par une assignation de rôle
+// visible (voir exo PowerShell 8f, section groupes assignés à des rôles).
+// Auditer les modifications de groupe est donc un axe de gouvernance à part entière.
+//
+// Table utilisée : AuditLogs
+// Environnement  : https://aka.ms/lademo
+// ========================================================================================
+
+
+// ========================================================================================
+// ÉTAPE 1 : Découverte — opérations GroupManagement disponibles
+// ========================================================================================
+
+AuditLogs
+| where TimeGenerated > ago(30d)
+| where Category == "GroupManagement"
+| summarize count() by OperationName
+| sort by count_ desc
+
+
+// ========================================================================================
+// ÉTAPE 2 : Ajouts et retraits de membres
+// ========================================================================================
+
+AuditLogs
+| where TimeGenerated > ago(30d)
+| where OperationName in ("Add member to group", "Remove member from group")
+| extend Acteur = tostring(InitiatedBy.user.userPrincipalName)
+| extend Membre = tostring(TargetResources[0].userPrincipalName)
+| extend NomGroupe = tostring(TargetResources[1].displayName)
+| project TimeGenerated, OperationName, Acteur, Membre, NomGroupe
+| sort by TimeGenerated desc
+
+
+// ========================================================================================
+// ÉTAPE 3 : Créations et suppressions de groupes
+// ========================================================================================
+
+AuditLogs
+| where TimeGenerated > ago(30d)
+| where OperationName in ("Add group", "Delete group")
+| extend Acteur = tostring(InitiatedBy.user.userPrincipalName)
+| extend NomGroupe = tostring(TargetResources[0].displayName)
+| project TimeGenerated, OperationName, Acteur, NomGroupe
+| sort by TimeGenerated desc
+
+
+// ========================================================================================
+// ÉTAPE 4 : Groupes avec le plus de churn (activité de membership)
+// ========================================================================================
+
+// Un groupe avec un volume élevé d'ajouts/retraits sur une courte période est soit
+// un groupe dynamique légitime à forte volatilité métier, soit un signal de
+// gouvernance à investiguer (groupe utilisé comme raccourci d'accès temporaire
+// répété plutôt que via un mécanisme d'accès formel comme PIM ou Entitlement Mgmt).
+AuditLogs
+| where TimeGenerated > ago(30d)
+| where OperationName in ("Add member to group", "Remove member from group")
+| extend NomGroupe = tostring(TargetResources[1].displayName)
+| summarize NbAjouts = countif(OperationName == "Add member to group"),
+            NbRetraits = countif(OperationName == "Remove member from group")
+            by NomGroupe
+| extend TotalMouvements = NbAjouts + NbRetraits
+| sort by TotalMouvements desc
+
+
+// ========================================================================================
+// ÉTAPE 5 : Membership d'un groupe sensible — historique complet
+// ========================================================================================
+
+// Pour un groupe identifié comme sensible (ex : un groupe assigné à un rôle admin
+// via group-based role assignment — voir exo PowerShell 8f), tracer tous les
+// mouvements de membership sur une fenêtre longue.
+AuditLogs
+| where TimeGenerated > ago(90d)
+| where OperationName in ("Add member to group", "Remove member from group")
+| extend NomGroupe = tostring(TargetResources[1].displayName)
+| where NomGroupe == "MagicOps-Dynamic-Team"
+| extend Acteur = tostring(InitiatedBy.user.userPrincipalName)
+| extend Membre = tostring(TargetResources[0].userPrincipalName)
+| project TimeGenerated, OperationName, Acteur, Membre
+| sort by TimeGenerated asc
+
+
+// ========================================================================================
+// ÉTAPE 6 : Requête de synthèse — activité de gouvernance groupes par admin
+// ========================================================================================
+
+// Rapport exploitable : qui modifie le plus de groupes sur le tenant — utile pour
+// valider que la gestion des groupes suit un processus formel plutôt qu'une activité
+// dispersée et non coordonnée entre plusieurs administrateurs.
+AuditLogs
+| where TimeGenerated > ago(30d)
+| where Category == "GroupManagement"
+| extend Acteur = tostring(InitiatedBy.user.userPrincipalName)
+| summarize NbOperations = count(),
+            TypesOperations = make_set(OperationName)
+            by Acteur
+| sort by NbOperations desc
+
+
+// ========================================================================================
+// DÉCOUVERTE TECHNIQUE — TargetResources[0] vs TargetResources[1] sur les événements groupe
+// ========================================================================================
+// Sur "Add member to group" / "Remove member from group", AuditLogs place généralement
+// le MEMBRE en TargetResources[0] et le GROUPE en TargetResources[1] — l'ordre inverse
+// des événements de rôle (exo 3a) où TargetResources[0] est déjà la cible principale.
+// [Guessing] Cet ordre peut varier selon la version du schéma ou le type d'opération —
+// vérifier avec une requête d'exploration avant de généraliser :
+//
+//   AuditLogs | where OperationName == "Add member to group" | take 1
+//   | project TargetResources
+//
+// Inspecter manuellement la structure retournée avant de fiabiliser l'indexation
+// dans un script de production.
 
