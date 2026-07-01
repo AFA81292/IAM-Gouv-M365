@@ -1,1 +1,207 @@
+// ========================================================================================
+// Exercice 1c : KQL — Bases — Summarize et visualisation
+// ========================================================================================
+// Concept : summarize est l'opérateur d'agrégation de KQL — l'équivalent du GROUP BY SQL
+// ou du Group-Object PowerShell. Combiné à render, il transforme des lignes de logs
+// bruts en graphiques exploitables pour un rapport ou un dashboard.
+//
+// Ce que couvre cet exercice :
+//   - summarize count() by         : compter par groupe
+//   - dcount()                      : compter les valeurs distinctes
+//   - avg() / min() / max() / sum() : agrégations statistiques
+//   - countif()                     : compter conditionnellement
+//   - render timechart / piechart / barchart / columnchart
+//   - top / top-nested              : classement par valeur agrégée
+//
+// Table utilisée : SigninLogs
+// Environnement  : https://aka.ms/lademo
+// ========================================================================================
+
+
+// ========================================================================================
+// ÉTAPE 1 : summarize count() by — compter par groupe
+// ========================================================================================
+
+// summarize count() by X regroupe les lignes par valeur de X et compte chaque groupe.
+// Équivalent SQL : SELECT X, COUNT(*) FROM table GROUP BY X
+// Équivalent PowerShell : Group-Object X | Select Name, Count
+SigninLogs
+| where TimeGenerated > ago(7d)
+| summarize NbConnexions = count() by UserPrincipalName
+| sort by NbConnexions desc
+
+// ---
+
+// Regrouper par plusieurs colonnes — chaque combinaison devient une ligne.
+SigninLogs
+| where TimeGenerated > ago(7d)
+| summarize NbConnexions = count() by UserPrincipalName, AppDisplayName
+| sort by NbConnexions desc
+
+// ---
+
+// Compter par code de résultat — vue rapide de la répartition succès/échecs.
+SigninLogs
+| where TimeGenerated > ago(7d)
+| summarize NbConnexions = count() by ResultType, ResultDescription
+| sort by NbConnexions desc
+
+
+// ========================================================================================
+// ÉTAPE 2 : dcount() — compter les valeurs distinctes
+// ========================================================================================
+
+// dcount() compte les valeurs UNIQUES d'une colonne — pas le nombre total de lignes.
+// Différence avec count() : count() compte les lignes, dcount() compte les valeurs distinctes.
+// Exemple : un même user peut avoir 50 connexions (count) mais 3 IP différentes (dcount).
+SigninLogs
+| where TimeGenerated > ago(7d)
+| summarize NbUtilisateursUniques = dcount(UserPrincipalName)
+
+// ---
+
+// dcount() par groupe — nombre d'IP distinctes utilisées par chaque utilisateur.
+// Un utilisateur avec beaucoup d'IP distinctes en peu de temps peut être un signal
+// d'alerte (VPN multiples, compte partagé, ou compromission).
+SigninLogs
+| where TimeGenerated > ago(7d)
+| summarize NbIPDistinctes = dcount(IPAddress) by UserPrincipalName
+| sort by NbIPDistinctes desc
+
+
+// ========================================================================================
+// ÉTAPE 3 : avg / min / max / sum — agrégations statistiques
+// ========================================================================================
+
+// Ces agrégations nécessitent une colonne numérique — SigninLogs n'en a pas de pertinente
+// nativement, donc on illustre le principe avec un calcul dérivé (durée en secondes).
+// Pattern général applicable à toute colonne numérique d'une autre table.
+SigninLogs
+| where TimeGenerated > ago(7d)
+| summarize NbConnexions = count() by UserPrincipalName
+| summarize MoyenneParUser = avg(NbConnexions),
+            MinParUser = min(NbConnexions),
+            MaxParUser = max(NbConnexions),
+            TotalConnexions = sum(NbConnexions)
+
+
+// ========================================================================================
+// ÉTAPE 4 : countif() — compter conditionnellement
+// ========================================================================================
+
+// countif() compte uniquement les lignes qui satisfont une condition, dans un summarize.
+// Évite d'écrire deux requêtes séparées (une pour le total, une pour le sous-ensemble).
+SigninLogs
+| where TimeGenerated > ago(7d)
+| summarize NbConnexions = count(),
+            NbEchecs = countif(ResultType != 0),
+            NbReussies = countif(ResultType == 0)
+            by UserPrincipalName
+| extend TauxEchec = round((todouble(NbEchecs) / NbConnexions) * 100, 1)
+| sort by TauxEchec desc
+
+// ---
+
+// countif() combiné avec plusieurs conditions — répartition MFA en une seule requête.
+SigninLogs
+| where TimeGenerated > ago(7d)
+| summarize NbAvecMFA = countif(AuthenticationRequirement == "multiFactorAuthentication"),
+            NbSansMFA = countif(AuthenticationRequirement == "singleFactorAuthentication")
+            by UserPrincipalName
+| where NbSansMFA > 0
+| sort by NbSansMFA desc
+
+
+// ========================================================================================
+// ÉTAPE 5 : render — visualisation graphique
+// ========================================================================================
+
+// render timechart : graphique en courbe, nécessite un axe temporel (bin obligatoire).
+// C'est le graphique le plus utilisé pour visualiser une tendance dans le temps.
+SigninLogs
+| where TimeGenerated > ago(1d)
+| summarize NbConnexions = count() by bin(TimeGenerated, 1h)
+| render timechart
+
+// ---
+
+// render piechart : répartition proportionnelle — utile pour une vue de posture (MFA, pays...).
+SigninLogs
+| where TimeGenerated > ago(7d)
+| summarize count() by AuthenticationRequirement
+| render piechart
+
+// ---
+
+// render barchart : comparaison de valeurs entre catégories, barres horizontales.
+SigninLogs
+| where TimeGenerated > ago(7d)
+| summarize NbConnexions = count() by ResultDescription
+| top 10 by NbConnexions
+| render barchart
+
+// ---
+
+// render columnchart : comparaison de valeurs entre catégories, barres verticales.
+// Différence avec barchart : orientation uniquement, même usage.
+SigninLogs
+| where TimeGenerated > ago(7d)
+| summarize NbConnexions = count() by AppDisplayName
+| top 10 by NbConnexions
+| render columnchart
+
+
+// ========================================================================================
+// ÉTAPE 6 : top — classement par valeur agrégée
+// ========================================================================================
+
+// top N by X : garde les N lignes avec la plus grande valeur de X.
+// Différence avec limit/take : top trie explicitement avant de couper, limit/take
+// ne garantit aucun ordre particulier.
+SigninLogs
+| where TimeGenerated > ago(7d)
+| summarize NbConnexions = count() by UserPrincipalName
+| top 5 by NbConnexions
+
+// ---
+
+// top-nested : classement hiérarchique — top N par groupe, puis top M dans chaque groupe.
+// Exemple : pour chaque utilisateur (top 5), quelles sont ses 3 applications les plus utilisées.
+SigninLogs
+| where TimeGenerated > ago(7d)
+| summarize NbConnexions = count() by UserPrincipalName, AppDisplayName
+| top-nested 5 of UserPrincipalName by NbUtilisateur = sum(NbConnexions),
+  top-nested 3 of AppDisplayName by NbApp = sum(NbConnexions)
+
+
+// ========================================================================================
+// ÉTAPE 7 : Requête de synthèse — dashboard posture connexions
+// ========================================================================================
+
+// Combine summarize, countif, extend et render pour un mini-dashboard exploitable.
+// Structure réutilisable pour n'importe quel rapport de posture périodique.
+SigninLogs
+| where TimeGenerated > ago(7d)
+| summarize NbConnexions = count(),
+            NbEchecs = countif(ResultType != 0),
+            NbAvecMFA = countif(AuthenticationRequirement == "multiFactorAuthentication"),
+            NbIPDistinctes = dcount(IPAddress)
+            by bin(TimeGenerated, 1d)
+| extend TauxEchec = round((todouble(NbEchecs) / NbConnexions) * 100, 1)
+| sort by TimeGenerated asc
+| render timechart
+
+
+// ========================================================================================
+// DÉCOUVERTE TECHNIQUE — count() vs count sans parenthèses
+// ========================================================================================
+// summarize count()       → nomme automatiquement la colonne résultat "Count"
+// summarize NbX = count() → nomme la colonne résultat "NbX" (recommandé pour la lisibilité)
+//
+// Sans alias, les requêtes chaînées deviennent illisibles :
+//   SigninLogs | summarize count() by UserPrincipalName | sort by Count_ desc
+//   (le nom généré automatiquement varie : Count, Count_, count_ selon le contexte)
+//
+// Bonne pratique systématique : toujours nommer explicitement ses agrégations.
+//   summarize NbConnexions = count() by UserPrincipalName | sort by NbConnexions desc
 
