@@ -1,1 +1,124 @@
+// ========================================================================================
+// Exercice 2c : KQL — SignIn Logs — Connexions bloquées par Conditional Access
+// ========================================================================================
+// Concept : Valider qu'une politique CA fonctionne comme prévu nécessite de vérifier
+// les blocages effectifs dans les logs — pas seulement l'état "enabled" de la politique
+// (voir exo PowerShell 5a). Une politique active peut ne jamais se déclencher si son
+// scope est mal configuré.
+//
+// Table utilisée : SigninLogs
+// Environnement  : https://aka.ms/lademo
+// ========================================================================================
+
+
+// ========================================================================================
+// ÉTAPE 1 : Volume global de connexions bloquées par CA
+// ========================================================================================
+
+// ResultType 53003 : bloqué par une politique Conditional Access.
+// Première vue — combien de blocages sur la période, tendance générale.
+SigninLogs
+| where TimeGenerated > ago(7d)
+| where ResultType == 53003
+| summarize NbBlocages = count() by bin(TimeGenerated, 1d)
+| render timechart
+
+
+// ========================================================================================
+// ÉTAPE 2 : Détail des politiques responsables des blocages
+// ========================================================================================
+
+// ConditionalAccessPolicies est un champ JSON imbriqué (array) — un même événement
+// de connexion peut être évalué par plusieurs politiques simultanément.
+// mv-expand "déplie" l'array en une ligne par politique évaluée.
+SigninLogs
+| where TimeGenerated > ago(7d)
+| where ResultType == 53003
+| mv-expand ConditionalAccessPolicies
+| extend NomPolitique = tostring(ConditionalAccessPolicies.displayName)
+| extend ResultatPolitique = tostring(ConditionalAccessPolicies.result)
+| project TimeGenerated, UserPrincipalName, NomPolitique, ResultatPolitique
+
+// ---
+
+// Filtrer uniquement les politiques dont le résultat est "failure" —
+// celle qui a réellement causé le blocage (les autres peuvent être "notApplied").
+SigninLogs
+| where TimeGenerated > ago(7d)
+| where ResultType == 53003
+| mv-expand ConditionalAccessPolicies
+| extend NomPolitique = tostring(ConditionalAccessPolicies.displayName)
+| extend ResultatPolitique = tostring(ConditionalAccessPolicies.result)
+| where ResultatPolitique == "failure"
+| project TimeGenerated, UserPrincipalName, NomPolitique
+
+
+// ========================================================================================
+// ÉTAPE 3 : Top politiques par nombre de blocages
+// ========================================================================================
+
+// Classement des politiques CA les plus déclenchées — identifie la politique la plus
+// active du tenant. Un volume anormalement élevé sur une politique peut indiquer
+// un scope trop large ou un comportement utilisateur à investiguer.
+SigninLogs
+| where TimeGenerated > ago(7d)
+| where ResultType == 53003
+| mv-expand ConditionalAccessPolicies
+| extend NomPolitique = tostring(ConditionalAccessPolicies.displayName)
+| extend ResultatPolitique = tostring(ConditionalAccessPolicies.result)
+| where ResultatPolitique == "failure"
+| summarize NbBlocages = count() by NomPolitique
+| sort by NbBlocages desc
+| render barchart
+
+
+// ========================================================================================
+// ÉTAPE 4 : Utilisateurs les plus bloqués
+// ========================================================================================
+
+// Un utilisateur bloqué de façon répétée est soit mal formé sur les procédures
+// d'accès (VPN oublié, device non conforme), soit une tentative d'accès illégitime
+// qui échoue systématiquement grâce à la politique CA — les deux méritent investigation.
+SigninLogs
+| where TimeGenerated > ago(7d)
+| where ResultType == 53003
+| summarize NbBlocages = count(),
+            DernierBlocage = max(TimeGenerated),
+            IPsDistinctes = dcount(IPAddress)
+            by UserPrincipalName
+| sort by NbBlocages desc
+
+
+// ========================================================================================
+// ÉTAPE 5 : Requête de synthèse — matrice politique x utilisateur
+// ========================================================================================
+
+// Vue croisée exploitable pour une revue de politique CA : quelle politique bloque
+// quel utilisateur, avec quelle fréquence. Permet d'identifier rapidement si un
+// blocage massif concerne un seul utilisateur (cas isolé) ou toute une population
+// (politique potentiellement mal calibrée pour un groupe entier).
+SigninLogs
+| where TimeGenerated > ago(7d)
+| where ResultType == 53003
+| mv-expand ConditionalAccessPolicies
+| extend NomPolitique = tostring(ConditionalAccessPolicies.displayName)
+| extend ResultatPolitique = tostring(ConditionalAccessPolicies.result)
+| where ResultatPolitique == "failure"
+| summarize NbBlocages = count() by NomPolitique, UserPrincipalName
+| sort by NbBlocages desc
+| take 30
+
+
+// ========================================================================================
+// DÉCOUVERTE TECHNIQUE — mv-expand et le risque de duplication de lignes
+// ========================================================================================
+// mv-expand transforme chaque élément d'un array en une ligne distincte — si une
+// connexion est évaluée par 3 politiques CA, mv-expand produit 3 lignes pour cette
+// connexion. Un count() après un mv-expand compte donc des évaluations de politique,
+// PAS des connexions. Pour compter des connexions uniques après mv-expand, utiliser
+// dcount() sur une colonne d'identifiant unique (ex : CorrelationId) plutôt que count().
+//
+//   Correct pour compter les connexions bloquées : count() AVANT le mv-expand (étape 1)
+//   Correct pour compter les évaluations de politique : count() APRÈS le mv-expand (étape 3)
+//   Les deux nombres seront différents — ne pas les confondre dans un rapport.
 
