@@ -1,1 +1,121 @@
+// ========================================================================================
+// Exercice 3a : KQL — Audit Logs Entra — Modifications de rôles administratifs
+// ========================================================================================
+// Concept : AuditLogs trace chaque modification d'objet Entra — qui a fait quoi, sur
+// quelle cible, à quel moment. Pour les rôles, c'est le pendant KQL de l'audit
+// PowerShell (exo 8f) : ici on regarde l'historique des changements, pas l'état actuel.
+//
+// Table utilisée : AuditLogs
+// Environnement  : https://aka.ms/lademo
+// ========================================================================================
+
+
+// ========================================================================================
+// ÉTAPE 1 : Découverte — catégories et opérations disponibles
+// ========================================================================================
+
+// Réflexe systématique sur AuditLogs avant de filtrer : le nom exact des opérations
+// varie légèrement selon le tenant et la version du schéma. On découvre avant de filtrer.
+AuditLogs
+| where TimeGenerated > ago(30d)
+| summarize count() by Category
+| sort by count_ desc
+
+// ---
+
+// Zoom sur les opérations de la catégorie RoleManagement.
+AuditLogs
+| where TimeGenerated > ago(30d)
+| where Category == "RoleManagement"
+| summarize count() by OperationName
+| sort by count_ desc
+
+
+// ========================================================================================
+// ÉTAPE 2 : Extraction acteur et cible
+// ========================================================================================
+
+// InitiatedBy et TargetResources sont des champs JSON imbriqués — tostring() extrait
+// les valeurs lisibles. Pattern à retenir, réutilisé dans tout le chapitre 03.
+AuditLogs
+| where TimeGenerated > ago(30d)
+| where Category == "RoleManagement"
+| extend Acteur = tostring(InitiatedBy.user.userPrincipalName)
+| extend Cible = tostring(TargetResources[0].userPrincipalName)
+| extend NomRole = tostring(TargetResources[0].displayName)
+| project TimeGenerated, OperationName, Acteur, Cible, NomRole, Result
+
+
+// ========================================================================================
+// ÉTAPE 3 : Assignations vs révocations
+// ========================================================================================
+
+// Distinguer les ajouts de rôle des retraits — deux opérations distinctes dans AuditLogs.
+AuditLogs
+| where TimeGenerated > ago(30d)
+| where Category == "RoleManagement"
+| where OperationName in ("Add member to role", "Remove member from role")
+| extend Acteur = tostring(InitiatedBy.user.userPrincipalName)
+| extend Cible = tostring(TargetResources[0].userPrincipalName)
+| extend NomRole = tostring(TargetResources[0].displayName)
+| summarize NbOperations = count() by OperationName, NomRole
+| sort by NbOperations desc
+
+
+// ========================================================================================
+// ÉTAPE 4 : Assignations sur rôles sensibles
+// ========================================================================================
+
+// Croiser avec une liste de rôles sensibles — même liste que celle utilisée dans
+// les scripts PowerShell (8f, 9d) pour garder une cohérence de repo.
+let RolesSensibles = dynamic([
+    "Global Administrator", "Privileged Role Administrator",
+    "Security Administrator", "User Administrator",
+    "Exchange Administrator", "SharePoint Administrator",
+    "Application Administrator", "Cloud Application Administrator"
+]);
+AuditLogs
+| where TimeGenerated > ago(30d)
+| where Category == "RoleManagement"
+| where OperationName == "Add member to role"
+| extend Acteur = tostring(InitiatedBy.user.userPrincipalName)
+| extend Cible = tostring(TargetResources[0].userPrincipalName)
+| extend NomRole = tostring(TargetResources[0].displayName)
+| where NomRole in (RolesSensibles)
+| project TimeGenerated, Acteur, Cible, NomRole
+| sort by TimeGenerated desc
+
+
+// ========================================================================================
+// ÉTAPE 5 : Requête de synthèse — rapport d'activité RBAC
+// ========================================================================================
+
+// Rapport exploitable : qui assigne le plus de rôles sur le tenant, et à qui —
+// utile pour identifier les admins actifs sur la gouvernance des accès et repérer
+// une activité RBAC anormalement concentrée sur un seul compte administrateur.
+AuditLogs
+| where TimeGenerated > ago(30d)
+| where Category == "RoleManagement"
+| where OperationName in ("Add member to role", "Remove member from role")
+| extend Acteur = tostring(InitiatedBy.user.userPrincipalName)
+| extend Cible = tostring(TargetResources[0].userPrincipalName)
+| extend NomRole = tostring(TargetResources[0].displayName)
+| summarize NbAssignations = countif(OperationName == "Add member to role"),
+            NbRevocations = countif(OperationName == "Remove member from role")
+            by Acteur
+| sort by NbAssignations desc
+
+
+// ========================================================================================
+// DÉCOUVERTE TECHNIQUE — TargetResources est un array, pas un objet unique
+// ========================================================================================
+// TargetResources[0] fonctionne pour la majorité des opérations de rôle (une seule
+// cible par événement), mais certaines opérations peuvent avoir plusieurs cibles
+// dans le même événement d'audit (ex : assignation groupée). Vérifier avec :
+//
+//   AuditLogs | where Category == "RoleManagement" | extend NbCibles = array_length(TargetResources)
+//   | where NbCibles > 1
+//
+// Si des lignes remontent, TargetResources[0] seul ne capture pas toutes les cibles —
+// il faut alors mv-expand TargetResources avant d'extraire les propriétés.
 
