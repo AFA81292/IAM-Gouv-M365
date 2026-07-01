@@ -163,9 +163,9 @@ SigninLogs | project TimeGenerated, UserPrincipalName, ConditionalAccessPolicies
   * Objectif : Tracer les activations de rôles via PIM — qui a activé quel rôle, avec quelle justification, pendant combien de temps.
   * Table : `AuditLogs`
 
-* [Exo 3e : Événements de risque Entra ID Protection](./03_Audit_Logs_Entra/exo3e-evenements-risque.kql)
-  * Objectif : Analyser les événements de risque individuels — impossible travel, leaked credentials, IP anonymes — et croiser avec les utilisateurs à risque actifs.
-  * Tables : `AADRiskyUsers`, `AADUserRiskEvents`
+* [Exo 3e : Réponse administrative aux risques détectés](./03_Audit_Logs_Entra/exo3e-reponse-administrative-risque.kql)
+  * Objectif : Auditer le PROCESSUS de traitement du risque, pas sa détection — un admin a-t-il agi sur un utilisateur signalé à risque, en combien de temps, ou jamais. Complémentaire à l'exo 2g (détection).
+  * Tables : `AuditLogs` (croisement ponctuel avec `AADRiskyUsers`)
 
 <details>
 <summary>Commandes utiles en une ligne — Audit Logs Entra</summary>
