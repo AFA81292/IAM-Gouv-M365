@@ -1,1 +1,120 @@
+// ========================================================================================
+// Exercice 2e : KQL — SignIn Logs — Détection brute force
+// ========================================================================================
+// Concept : Une attaque brute force se caractérise par un volume anormal d'échecs
+// sur une fenêtre temporelle courte — soit ciblant un seul compte (brute force
+// classique), soit ciblant plusieurs comptes depuis une même source (password spray).
+// Les deux patterns nécessitent des requêtes différentes.
+//
+// Table utilisée : SigninLogs
+// Environnement  : https://aka.ms/lademo
+// ========================================================================================
+
+
+// ========================================================================================
+// ÉTAPE 1 : Brute force classique — rafale d'échecs sur un même compte
+// ========================================================================================
+
+// bin(TimeGenerated, 5m) regroupe les échecs par fenêtre de 5 minutes et par utilisateur.
+// Un seuil de 5 échecs en 5 minutes est un point de départ raisonnable — à ajuster
+// selon le contexte du tenant (fréquence normale d'erreurs de frappe des utilisateurs).
+SigninLogs
+| where TimeGenerated > ago(1d)
+| where ResultType != 0
+| summarize NbEchecs = count() by UserPrincipalName, bin(TimeGenerated, 5m)
+| where NbEchecs >= 5
+| sort by NbEchecs desc
+
+
+// ========================================================================================
+// ÉTAPE 2 : Password spray — une IP cible plusieurs comptes
+// ========================================================================================
+
+// Signature différente du brute force classique : peu d'échecs par compte, mais
+// beaucoup de comptes distincts ciblés depuis la même IP sur une courte fenêtre.
+// C'est la technique privilégiée pour éviter les seuils de verrouillage de compte
+// (qui se déclenchent sur le volume par compte, pas par IP).
+SigninLogs
+| where TimeGenerated > ago(1d)
+| where ResultType != 0
+| summarize NbComptesCibles = dcount(UserPrincipalName),
+            NbEchecsTotal = count()
+            by IPAddress, bin(TimeGenerated, 10m)
+| where NbComptesCibles >= 5
+| sort by NbComptesCibles desc
+
+
+// ========================================================================================
+// ÉTAPE 3 : IP à l'origine de volumes d'échecs suspects
+// ========================================================================================
+
+// Vue par IP sur une fenêtre plus large — identifie les sources persistantes
+// d'échecs, qu'elles ciblent un seul compte en boucle ou plusieurs comptes.
+SigninLogs
+| where TimeGenerated > ago(7d)
+| where ResultType != 0
+| summarize NbEchecs = count(),
+            NbComptesCibles = dcount(UserPrincipalName),
+            Pays = any(tostring(LocationDetails.countryOrRegion))
+            by IPAddress
+| where NbEchecs >= 10
+| sort by NbEchecs desc
+
+
+// ========================================================================================
+// ÉTAPE 4 : Signal critique — succès juste après une rafale d'échecs
+// ========================================================================================
+
+// Le signal le plus grave : une rafale d'échecs suivie d'une connexion réussie
+// pour le même compte, dans une fenêtre courte. C'est la signature d'un brute force
+// qui a fini par trouver le bon mot de passe — le compte est vraisemblablement compromis.
+let EchecsRafale = SigninLogs
+    | where TimeGenerated > ago(1d)
+    | where ResultType != 0
+    | summarize NbEchecs = count(), DernierEchec = max(TimeGenerated) by UserPrincipalName, bin(TimeGenerated, 15m)
+    | where NbEchecs >= 5;
+SigninLogs
+| where TimeGenerated > ago(1d)
+| where ResultType == 0
+| join kind=inner EchecsRafale on UserPrincipalName
+| where TimeGenerated > DernierEchec and TimeGenerated < DernierEchec + 15m
+| project UserPrincipalName, DernierEchec, ConnexionReussie = TimeGenerated, IPAddress
+| sort by ConnexionReussie desc
+
+
+// ========================================================================================
+// ÉTAPE 5 : Requête de synthèse — dashboard menace brute force
+// ========================================================================================
+
+// Vue combinée : classement des comptes les plus attaqués sur 7 jours, avec IP
+// principale et statut de compromission potentielle (succès après rafale ou non).
+SigninLogs
+| where TimeGenerated > ago(7d)
+| where ResultType != 0
+| summarize NbEchecs = count(),
+            NbIPsDistinctes = dcount(IPAddress),
+            PremierEchec = min(TimeGenerated),
+            DernierEchec = max(TimeGenerated)
+            by UserPrincipalName
+| where NbEchecs >= 10
+| extend DureeAttaqueHeures = round(datetime_diff('minute', DernierEchec, PremierEchec) / 60.0, 1)
+| sort by NbEchecs desc
+
+
+// ========================================================================================
+// DÉCOUVERTE TECHNIQUE — let et join pour corréler deux sous-requêtes
+// ========================================================================================
+// let nomme une sous-requête réutilisable — équivalent d'une variable ou d'une CTE SQL.
+// Utile pour construire une logique en deux temps : d'abord identifier un ensemble
+// d'événements (ici, les rafales d'échecs), puis corréler cet ensemble avec un second
+// jeu de données (ici, les connexions réussies qui suivent).
+//
+// join kind=inner ne garde que les lignes présentes dans les deux tables jointes —
+// ici, uniquement les utilisateurs qui apparaissent à la fois dans EchecsRafale
+// ET dans les connexions réussies. C'est volontaire : on ne veut voir que les cas
+// où une rafale ET un succès subséquent existent tous les deux.
+//
+// Point d'attention : join peut dupliquer des lignes si la clé de jointure (ici
+// UserPrincipalName) n'est pas unique des deux côtés — toujours vérifier le volume
+// de résultat après un join contre l'intuition attendue.
 
