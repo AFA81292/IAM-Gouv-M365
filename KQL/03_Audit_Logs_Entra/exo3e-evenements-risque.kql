@@ -1,1 +1,133 @@
+// ========================================================================================
+// Exercice 3e : KQL — Audit Logs Entra — Réponse administrative aux risques détectés
+// ========================================================================================
+// Concept : L'exo 2g regarde la DÉTECTION du risque (AADRiskyUsers, AADUserRiskEvents) —
+// Entra ID Protection a-t-il repéré quelque chose. Cet exercice regarde la RÉPONSE —
+// un administrateur a-t-il réellement agi sur ce signal, et en combien de temps.
+// C'est un angle de conformité de processus, pas de détection technique — le cœur
+// d'un audit gouvernance IAM en mission AMOA.
+//
+// Table utilisée : AuditLogs (croisement ponctuel avec AADRiskyUsers)
+// Environnement  : https://aka.ms/lademo
+// ========================================================================================
+
+
+// ========================================================================================
+// ÉTAPE 1 : Découverte — opérations liées au risque dans AuditLogs
+// ========================================================================================
+
+// [Guessing] Le nom exact des opérations de réponse au risque varie selon la version
+// du schéma — on découvre par mot-clé avant de filtrer sur une valeur exacte.
+// Opérations attendues : "Confirm compromised user", "Dismiss risky user",
+// "Confirm safe sign-in", "Reset user password (risky user)".
+AuditLogs
+| where TimeGenerated > ago(30d)
+| where OperationName has_any ("risk", "Risk", "compromised", "Compromised")
+| summarize count() by OperationName, Category
+| sort by count_ desc
+
+
+// ========================================================================================
+// ÉTAPE 2 : Détail des actions administratives sur le risque
+// ========================================================================================
+
+AuditLogs
+| where TimeGenerated > ago(30d)
+| where OperationName has_any ("risk", "Risk", "compromised", "Compromised")
+| extend Acteur = tostring(InitiatedBy.user.userPrincipalName)
+| extend Cible = tostring(TargetResources[0].userPrincipalName)
+| project TimeGenerated, OperationName, Acteur, Cible, Result
+| sort by TimeGenerated desc
+
+
+// ========================================================================================
+// ÉTAPE 3 : Délai entre détection et réponse
+// ========================================================================================
+
+// Pour chaque utilisateur signalé à risque (AADRiskyUsers), on cherche la première
+// action administrative correspondante dans AuditLogs et on calcule l'écart de temps.
+// C'est la métrique de conformité centrale : un risque détecté mais non traité
+// pendant des semaines est une défaillance de processus, pas un problème technique.
+let ActionsAdmin = AuditLogs
+    | where TimeGenerated > ago(30d)
+    | where OperationName has_any ("risk", "Risk", "compromised", "Compromised")
+    | extend Cible = tostring(TargetResources[0].userPrincipalName)
+    | summarize PremiereAction = min(TimeGenerated), TypeAction = any(OperationName) by Cible;
+AADRiskyUsers
+| where RiskLastUpdatedDateTime > ago(30d)
+| join kind=leftouter ActionsAdmin on $left.UserPrincipalName == $right.Cible
+| extend DelaiReponseHeures = iff(isnotnull(PremiereAction),
+                                   round(datetime_diff('minute', PremiereAction, RiskLastUpdatedDateTime) / 60.0, 1),
+                                   real(null))
+| project UserPrincipalName, RiskLevel, RiskState, RiskLastUpdatedDateTime,
+          TypeAction, PremiereAction, DelaiReponseHeures
+| sort by RiskLastUpdatedDateTime desc
+
+
+// ========================================================================================
+// ÉTAPE 4 : Risques jamais traités — la vraie question de gouvernance
+// ========================================================================================
+
+// Filtrer sur les utilisateurs à risque actif SANS aucune action administrative
+// correspondante dans la fenêtre observée — le signal a été émis, personne n'a répondu.
+// C'est l'écart le plus critique à faire remonter dans un rapport d'audit gouvernance.
+let ActionsAdmin = AuditLogs
+    | where TimeGenerated > ago(30d)
+    | where OperationName has_any ("risk", "Risk", "compromised", "Compromised")
+    | extend Cible = tostring(TargetResources[0].userPrincipalName)
+    | distinct Cible;
+AADRiskyUsers
+| where RiskState == "atRisk"
+| where UserPrincipalName !in (ActionsAdmin)
+| project UserPrincipalName, RiskLevel, RiskLastUpdatedDateTime
+| sort by RiskLastUpdatedDateTime asc
+
+
+// ========================================================================================
+// ÉTAPE 5 : Qui traite les risques sur le tenant
+// ========================================================================================
+
+// Répartition des actions de réponse au risque par administrateur — utile pour
+// valider qu'un processus formel existe (équipe sécurité dédiée) plutôt qu'une
+// réponse ad hoc dispersée entre plusieurs admins sans coordination.
+AuditLogs
+| where TimeGenerated > ago(30d)
+| where OperationName has_any ("risk", "Risk", "compromised", "Compromised")
+| extend Acteur = tostring(InitiatedBy.user.userPrincipalName)
+| summarize NbActions = count(), TypesActions = make_set(OperationName) by Acteur
+| sort by NbActions desc
+
+
+// ========================================================================================
+// ÉTAPE 6 : Requête de synthèse — tableau de bord conformité risque
+// ========================================================================================
+
+// Rapport exploitable : proportion de risques traités vs non traités sur la période —
+// indicateur de maturité du processus de réponse aux incidents d'identité.
+let ActionsAdmin = AuditLogs
+    | where TimeGenerated > ago(30d)
+    | where OperationName has_any ("risk", "Risk", "compromised", "Compromised")
+    | extend Cible = tostring(TargetResources[0].userPrincipalName)
+    | distinct Cible;
+AADRiskyUsers
+| where RiskLastUpdatedDateTime > ago(30d)
+| extend Traite = iff(UserPrincipalName in (ActionsAdmin), "Traité", "Non traité")
+| summarize NbUtilisateurs = count() by Traite
+| render piechart
+
+
+// ========================================================================================
+// DÉCOUVERTE TECHNIQUE — détection vs réponse, deux exercices, deux vérités différentes
+// ========================================================================================
+// Exo 2g répond à : "combien d'utilisateurs sont signalés à risque en ce moment ?"
+// Exo 3e répond à  : "sur ces utilisateurs, combien ont réellement été pris en charge
+//                     par un administrateur, et en combien de temps ?"
+//
+// La première question est une question de détection (Entra ID Protection fait
+// le travail automatiquement). La seconde est une question de PROCESSUS — c'est
+// celle qui intéresse un auditeur ou un RSSI en mission, parce qu'un excellent outil
+// de détection ne vaut rien si personne ne traite les alertes qu'il génère.
+// C'est exactement l'angle qu'un profil AMOA/Gouvernance doit savoir creuser :
+// pas seulement "l'outil fonctionne-t-il", mais "le processus autour de l'outil
+// fonctionne-t-il".
 
