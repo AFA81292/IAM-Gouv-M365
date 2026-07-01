@@ -1,1 +1,122 @@
+// ========================================================================================
+// Exercice 2a : KQL — SignIn Logs — Connexions échouées par utilisateur
+// ========================================================================================
+// Concept : Les échecs de connexion sont le premier signal d'audit IAM — mot de passe
+// oublié, compte mal configuré, ou tentative de compromission. Distinguer ces trois
+// cas nécessite de croiser volume, code d'erreur et régularité dans le temps.
+//
+// Table utilisée : SigninLogs
+// Environnement  : https://aka.ms/lademo
+// ========================================================================================
+
+
+// ========================================================================================
+// ÉTAPE 1 : Vue globale — échecs par utilisateur
+// ========================================================================================
+
+// Premier réflexe d'audit : qui échoue le plus, sur quelle période.
+SigninLogs
+| where TimeGenerated > ago(7d)
+| where ResultType != 0
+| summarize NbEchecs = count() by UserPrincipalName
+| sort by NbEchecs desc
+
+// ---
+
+// Détail par type d'erreur — un même utilisateur peut cumuler plusieurs causes
+// (mot de passe incorrect ET compte désactivé, par exemple, sur des tentatives différentes).
+SigninLogs
+| where TimeGenerated > ago(7d)
+| where ResultType != 0
+| summarize NbEchecs = count() by UserPrincipalName, ResultType, ResultDescription
+| sort by NbEchecs desc
+
+
+// ========================================================================================
+// ÉTAPE 2 : Taux d'échec — repérer les comptes à risque
+// ========================================================================================
+
+// Le volume brut d'échecs ne dit rien seul — un compte avec 500 connexions/jour
+// et 20 échecs (4%) est plus sain qu'un compte avec 3 connexions et 3 échecs (100%).
+// Le taux d'échec est l'indicateur pertinent, pas le volume brut.
+SigninLogs
+| where TimeGenerated > ago(7d)
+| summarize NbTotal = count(),
+            NbEchecs = countif(ResultType != 0)
+            by UserPrincipalName
+| extend TauxEchec = round((todouble(NbEchecs) / NbTotal) * 100, 1)
+| where NbTotal > 3   // exclut les comptes avec trop peu de données pour être significatifs
+| sort by TauxEchec desc
+
+// ---
+
+// Comptes avec 100% d'échecs — aucune connexion réussie sur la période.
+// Signal fort : compte probablement désactivé à tort, mal provisionné,
+// ou cible active d'une tentative d'accès (sans succès à ce stade).
+SigninLogs
+| where TimeGenerated > ago(7d)
+| summarize NbTotal = count(),
+            NbReussies = countif(ResultType == 0)
+            by UserPrincipalName
+| where NbReussies == 0 and NbTotal > 0
+| sort by NbTotal desc
+
+
+// ========================================================================================
+// ÉTAPE 3 : Répartition par cause d'échec
+// ========================================================================================
+
+// Vue globale des causes d'échec sur le tenant — priorise les actions correctives.
+// Un pic de "mot de passe incorrect" oriente vers une campagne de sensibilisation.
+// Un pic de "MFA non complété" oriente vers une campagne d'enrôlement MFA.
+SigninLogs
+| where TimeGenerated > ago(7d)
+| where ResultType != 0
+| summarize NbOccurrences = count() by ResultType, ResultDescription
+| sort by NbOccurrences desc
+| render piechart
+
+
+// ========================================================================================
+// ÉTAPE 4 : Chronologie des échecs pour un utilisateur ciblé
+// ========================================================================================
+
+// Une fois un utilisateur suspect identifié aux étapes précédentes, cette requête
+// donne le détail chronologique — IP, app, code d'erreur, pour investigation.
+// Remplacer la valeur du where par l'UPN identifié à l'étape 1 ou 2.
+SigninLogs
+| where TimeGenerated > ago(7d)
+| where UserPrincipalName == "AdeleV@lademo.onmicrosoft.com"
+| project TimeGenerated, ResultType, ResultDescription, IPAddress, AppDisplayName
+| sort by TimeGenerated desc
+
+
+// ========================================================================================
+// ÉTAPE 5 : Requête de synthèse — rapport d'audit échecs
+// ========================================================================================
+
+// Rapport exploitable : top 20 utilisateurs par nombre d'échecs, avec dernière tentative,
+// IP la plus fréquente et code d'erreur dominant — livrable direct pour une revue sécurité.
+SigninLogs
+| where TimeGenerated > ago(7d)
+| where ResultType != 0
+| summarize NbEchecs = count(),
+            DernierEchec = max(TimeGenerated),
+            CodesErreur = make_set(ResultDescription, 5)
+            by UserPrincipalName
+| sort by NbEchecs desc
+| take 20
+
+
+// ========================================================================================
+// DÉCOUVERTE TECHNIQUE — make_set() pour agréger des valeurs distinctes en liste
+// ========================================================================================
+// make_set(Colonne, N) collecte jusqu'à N valeurs distinctes d'une colonne dans un array,
+// utilisable directement dans un summarize. Utile pour condenser des informations
+// variées (plusieurs codes d'erreur, plusieurs IP) sur une seule ligne de rapport,
+// sans exploser le résultat en une ligne par combinaison.
+//
+// Variante : make_set sans limite de nombre (à utiliser avec prudence sur les colonnes
+// à forte cardinalité — le résultat peut devenir volumineux) :
+//   summarize CodesErreur = make_set(ResultDescription) by UserPrincipalName
 
