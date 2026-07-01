@@ -1,1 +1,133 @@
+// ========================================================================================
+// Exercice 3b : KQL — Audit Logs Entra — Créations et suppressions de comptes
+// ========================================================================================
+// Concept : Le cycle de vie complet d'une identité — création, modification,
+// désactivation, suppression — est tracé dans AuditLogs sous la catégorie
+// UserManagement. C'est le pendant KQL des exos PowerShell 1a à 1h.
+//
+// Table utilisée : AuditLogs
+// Environnement  : https://aka.ms/lademo
+// ========================================================================================
+
+
+// ========================================================================================
+// ÉTAPE 1 : Découverte — opérations UserManagement disponibles
+// ========================================================================================
+
+AuditLogs
+| where TimeGenerated > ago(30d)
+| where Category == "UserManagement"
+| summarize count() by OperationName
+| sort by count_ desc
+
+
+// ========================================================================================
+// ÉTAPE 2 : Créations de comptes
+// ========================================================================================
+
+// Chronologie des créations — utile pour valider qu'un provisioning correspond
+// bien à un onboarding attendu (croisement avec un ticket RH, par exemple).
+AuditLogs
+| where TimeGenerated > ago(30d)
+| where OperationName == "Add user"
+| extend Acteur = tostring(InitiatedBy.user.userPrincipalName)
+| extend NouveauCompte = tostring(TargetResources[0].userPrincipalName)
+| project TimeGenerated, Acteur, NouveauCompte, Result
+| sort by TimeGenerated desc
+
+
+// ========================================================================================
+// ÉTAPE 3 : Suppressions de comptes
+// ========================================================================================
+
+// Suppressions — à corréler avec les créations pour calculer une durée de vie
+// de compte, ou pour valider qu'un offboarding a bien été exécuté après une date cible.
+AuditLogs
+| where TimeGenerated > ago(30d)
+| where OperationName == "Delete user"
+| extend Acteur = tostring(InitiatedBy.user.userPrincipalName)
+| extend CompteSupprime = tostring(TargetResources[0].userPrincipalName)
+| project TimeGenerated, Acteur, CompteSupprime, Result
+| sort by TimeGenerated desc
+
+
+// ========================================================================================
+// ÉTAPE 4 : Désactivations — détection via modifiedProperties
+// ========================================================================================
+
+// Une désactivation de compte n'a pas d'opération dédiée — c'est une "Update user"
+// où l'une des propriétés modifiées est AccountEnabled. Il faut fouiller dans
+// modifiedProperties, un array de {displayName, oldValue, newValue}.
+AuditLogs
+| where TimeGenerated > ago(30d)
+| where OperationName == "Update user"
+| mv-expand ModifiedProp = TargetResources[0].modifiedProperties
+| extend NomPropriete = tostring(ModifiedProp.displayName)
+| where NomPropriete == "AccountEnabled"
+| extend AncienneValeur = tostring(ModifiedProp.oldValue)
+| extend NouvelleValeur = tostring(ModifiedProp.newValue)
+| extend Acteur = tostring(InitiatedBy.user.userPrincipalName)
+| extend Cible = tostring(TargetResources[0].userPrincipalName)
+| project TimeGenerated, Acteur, Cible, AncienneValeur, NouvelleValeur
+
+// ---
+
+// Filtrer uniquement les désactivations (true → false).
+AuditLogs
+| where TimeGenerated > ago(30d)
+| where OperationName == "Update user"
+| mv-expand ModifiedProp = TargetResources[0].modifiedProperties
+| extend NomPropriete = tostring(ModifiedProp.displayName)
+| where NomPropriete == "AccountEnabled"
+| extend NouvelleValeur = tostring(ModifiedProp.newValue)
+| where NouvelleValeur has "false"
+| extend Acteur = tostring(InitiatedBy.user.userPrincipalName)
+| extend Cible = tostring(TargetResources[0].userPrincipalName)
+| project TimeGenerated, Acteur, Cible
+
+
+// ========================================================================================
+// ÉTAPE 5 : Chronologie complète d'un compte
+// ========================================================================================
+
+// Pour un utilisateur donné, l'ensemble des opérations UserManagement le concernant —
+// vue d'ensemble utile pour reconstruire l'historique d'un compte en investigation.
+AuditLogs
+| where TimeGenerated > ago(90d)
+| where Category == "UserManagement"
+| extend Cible = tostring(TargetResources[0].userPrincipalName)
+| where Cible == "AdeleV@lademo.onmicrosoft.com"
+| extend Acteur = tostring(InitiatedBy.user.userPrincipalName)
+| project TimeGenerated, OperationName, Acteur, Result
+| sort by TimeGenerated asc
+
+
+// ========================================================================================
+// ÉTAPE 6 : Requête de synthèse — activité de provisioning par admin
+// ========================================================================================
+
+// Rapport exploitable : volumes de créations/suppressions par administrateur —
+// utile pour valider la répartition des responsabilités de provisioning sur le tenant.
+AuditLogs
+| where TimeGenerated > ago(30d)
+| where OperationName in ("Add user", "Delete user")
+| extend Acteur = tostring(InitiatedBy.user.userPrincipalName)
+| summarize NbCreations = countif(OperationName == "Add user"),
+            NbSuppressions = countif(OperationName == "Delete user")
+            by Acteur
+| sort by NbCreations desc
+
+
+// ========================================================================================
+// DÉCOUVERTE TECHNIQUE — modifiedProperties, le champ le plus riche et le plus piégeux
+// ========================================================================================
+// modifiedProperties est un array de sous-objets {displayName, oldValue, newValue}
+// sur "Update user" — il peut contenir 0 à N propriétés modifiées dans un même
+// événement. mv-expand est nécessaire pour l'exploiter proprement (voir étape 4).
+//
+// Piège fréquent : oldValue et newValue sont souvent des chaînes JSON elles-mêmes
+// entre guillemets (ex : newValue = "\"false\"" et pas simplement "false").
+// Le has "false" à l'étape 4 fonctionne malgré ça car has cherche une sous-chaîne,
+// mais une comparaison stricte == "false" échouerait à cause des guillemets internes.
+// Pour une comparaison stricte propre : trim(@'"', NouvelleValeur) == "false"
 
