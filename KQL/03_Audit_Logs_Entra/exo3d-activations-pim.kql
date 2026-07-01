@@ -1,1 +1,146 @@
+// ========================================================================================
+// Exercice 3d : KQL — Audit Logs Entra — Activations PIM
+// ========================================================================================
+// Concept : Chaque activation PIM (passage d'un rôle éligible à un rôle actif)
+// génère un événement d'audit avec la justification fournie par l'utilisateur.
+// C'est le pendant KQL de l'audit PowerShell des schedules PIM (exo 6a, 8f) —
+// ici on regarde l'usage réel dans le temps, pas l'état actuel des éligibilités.
+//
+// Table utilisée : AuditLogs
+// Environnement  : https://aka.ms/lademo
+// ========================================================================================
+
+
+// ========================================================================================
+// ÉTAPE 1 : Découverte — repérer les opérations liées à PIM
+// ========================================================================================
+
+// Les opérations PIM sont dans la catégorie RoleManagement, mais avec un nommage
+// spécifique contenant généralement "PIM" ou "eligib". contains est utilisé ici
+// en exploration — à remplacer par une valeur exacte une fois identifiée.
+AuditLogs
+| where TimeGenerated > ago(30d)
+| where Category == "RoleManagement"
+| where OperationName has_any ("PIM", "eligib", "Eligib")
+| summarize count() by OperationName
+| sort by count_ desc
+
+
+// ========================================================================================
+// ÉTAPE 2 : Détail des activations avec justification
+// ========================================================================================
+
+// AdditionalDetails contient souvent la justification fournie lors de l'activation —
+// un array de {key, value}. On extrait la valeur associée à la clé "Justification"
+// (le nom exact de la clé peut varier — voir DÉCOUVERTE TECHNIQUE en bas de fichier).
+AuditLogs
+| where TimeGenerated > ago(30d)
+| where Category == "RoleManagement"
+| where OperationName has "PIM"
+| extend Acteur = tostring(InitiatedBy.user.userPrincipalName)
+| extend NomRole = tostring(TargetResources[0].displayName)
+| mv-expand Detail = AdditionalDetails
+| extend CleDetail = tostring(Detail.key)
+| extend ValeurDetail = tostring(Detail.value)
+| where CleDetail has "ustif"   // capture "Justification" indépendamment de la casse exacte
+| project TimeGenerated, Acteur, NomRole, Justification = ValeurDetail
+
+
+// ========================================================================================
+// ÉTAPE 3 : Activations sur rôles sensibles
+// ========================================================================================
+
+let RolesSensibles = dynamic([
+    "Global Administrator", "Privileged Role Administrator",
+    "Security Administrator", "User Administrator",
+    "Exchange Administrator", "SharePoint Administrator",
+    "Application Administrator", "Cloud Application Administrator"
+]);
+AuditLogs
+| where TimeGenerated > ago(30d)
+| where Category == "RoleManagement"
+| where OperationName has "PIM"
+| extend Acteur = tostring(InitiatedBy.user.userPrincipalName)
+| extend NomRole = tostring(TargetResources[0].displayName)
+| where NomRole in (RolesSensibles)
+| project TimeGenerated, Acteur, NomRole
+| sort by TimeGenerated desc
+
+
+// ========================================================================================
+// ÉTAPE 4 : Fréquence d'activation par utilisateur
+// ========================================================================================
+
+// Un utilisateur qui active le même rôle très fréquemment (plusieurs fois par semaine)
+// pose une question de conception : le rôle devrait-il être permanent plutôt qu'éligible,
+// si l'usage est en réalité quasi continu ? PIM perd son intérêt si l'activation
+// devient un geste réflexe plutôt qu'une décision consciente et justifiée.
+AuditLogs
+| where TimeGenerated > ago(30d)
+| where Category == "RoleManagement"
+| where OperationName has "PIM"
+| extend Acteur = tostring(InitiatedBy.user.userPrincipalName)
+| extend NomRole = tostring(TargetResources[0].displayName)
+| summarize NbActivations = count(), Roles = make_set(NomRole) by Acteur
+| sort by NbActivations desc
+
+
+// ========================================================================================
+// ÉTAPE 5 : Activations en dehors des heures ouvrées
+// ========================================================================================
+
+// Une activation PIM sur un rôle sensible à 3h du matin un dimanche mérite une
+// vérification — soit une astreinte légitime documentée, soit un signal à investiguer.
+// dayofweek() et hourofday() permettent d'isoler ces créneaux.
+AuditLogs
+| where TimeGenerated > ago(30d)
+| where Category == "RoleManagement"
+| where OperationName has "PIM"
+| extend Acteur = tostring(InitiatedBy.user.userPrincipalName)
+| extend NomRole = tostring(TargetResources[0].displayName)
+| extend HeureLocale = hourofday(TimeGenerated)
+| extend JourSemaine = dayofweek(TimeGenerated)
+| where HeureLocale < 7 or HeureLocale > 20
+| project TimeGenerated, Acteur, NomRole, HeureLocale, JourSemaine
+
+
+// ========================================================================================
+// ÉTAPE 6 : Requête de synthèse — rapport d'usage PIM
+// ========================================================================================
+
+// Rapport exploitable : par utilisateur, nombre d'activations, rôles concernés,
+// et proportion sur rôles sensibles — livrable pour une revue trimestrielle PIM.
+let RolesSensibles = dynamic([
+    "Global Administrator", "Privileged Role Administrator",
+    "Security Administrator", "User Administrator",
+    "Exchange Administrator", "SharePoint Administrator",
+    "Application Administrator", "Cloud Application Administrator"
+]);
+AuditLogs
+| where TimeGenerated > ago(30d)
+| where Category == "RoleManagement"
+| where OperationName has "PIM"
+| extend Acteur = tostring(InitiatedBy.user.userPrincipalName)
+| extend NomRole = tostring(TargetResources[0].displayName)
+| summarize NbActivationsTotal = count(),
+            NbActivationsSensibles = countif(NomRole in (RolesSensibles))
+            by Acteur
+| sort by NbActivationsTotal desc
+
+
+// ========================================================================================
+// DÉCOUVERTE TECHNIQUE — AdditionalDetails, le champ le moins stable du schéma
+// ========================================================================================
+// [Guessing] La clé exacte contenant la justification dans AdditionalDetails varie
+// selon les versions de schéma observées ("Justification", "justification", ou
+// parfois absente si l'utilisateur n'a rien saisi). L'étape 2 utilise has "ustif"
+// plutôt qu'une égalité stricte pour rester robuste face à la casse.
+//
+// Avant de fiabiliser une requête sur AdditionalDetails en production, toujours
+// inspecter la structure brute sur quelques lignes réelles :
+//
+//   AuditLogs | where OperationName has "PIM" | take 1 | project AdditionalDetails
+//
+// C'est un réflexe à généraliser à tout champ JSON peu documenté avant de bâtir
+// une logique de filtrage dessus.
 
